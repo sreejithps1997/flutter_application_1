@@ -1,0 +1,80 @@
+name: workable
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Core utilities
+  intl: ^0.18.1 
+  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.8
+  
+  # Media and files
+  image_picker: ^1.0.4
+  url_launcher: ^6.2.6
+  path: ^1.8.3
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.0
+  camera: ^0.10.5+9
+  flutter_image_compress: ^2.1.0
+  
+  # Firebase dependencies
+  firebase_core: ^2.32.0
+  firebase_auth: ^4.16.0
+  cloud_firestore: ^4.17.5
+  firebase_storage: ^11.6.5
+  firebase_messaging: ^14.7.2
+  #firebase_app_check: ^0.2.2
+  firebase_analytics: ^10.10.6       
+  firebase_crashlytics: ^3.5.6       
+  firebase_performance: ^0.9.4+7
+  
+  # Location services
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+  google_maps_flutter: ^2.5.0
+  
+  # Authentication
+  google_sign_in: ^6.2.1
+  
+  # State management & navigation
+  flutter_riverpod: ^2.6.1
+  go_router: ^16.1.0
+  
+  # UI components
+  lucide_icons: ^0.257.0
+  flutter_verification_code: ^1.1.7
+  flutter_local_notifications: ^15.1.1
+  
+  # ML Kit
+  google_mlkit_text_recognition: ^0.10.0
+
+  # Storage & Security
+  hive: ^2.2.3                        # ✅ Added
+  hive_flutter: ^1.1.0                # ✅ Added
+  flutter_secure_storage: ^9.2.2      # ✅ Added
+  crypto: ^3.0.3                      # ✅ Added
+
+  connectivity_plus: ^6.0.3
+  
+  # ✅ REQUIRED: Add missing dependencies for performance optimizations
+  dio: ^5.4.0       
+  equatable: ^2.0.5
+  dartz: ^0.10.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  http: ^1.2.0
+
+# ✅ FIXED: Corrected flutter configuration (was duplicated)
+flutter:
+  uses-material-design: true
+  
