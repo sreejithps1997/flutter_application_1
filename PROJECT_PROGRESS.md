@@ -127,10 +127,10 @@ Smart Booking and AI tests:
   - backend creates an action-required verification notification
   - rejected verification notification routes to the identity verification screen
 - App Check rollout:
-  - pending implementation and manual testing; do not enforce until Android/iOS debug and release devices are registered
-  - add `firebase_app_check` to Flutter dependencies
-  - initialize App Check before normal Firebase-dependent app flows
-  - use debug provider during development/emulator testing
+  - client foundation implemented; manual testing and Firebase Console setup still pending
+  - `firebase_app_check` added to Flutter dependencies
+  - App Check initializes after `Firebase.initializeApp()` and before normal Firebase-dependent app flows
+  - debug provider is active for development/emulator testing
   - configure Android provider in Firebase Console for release builds
   - configure iOS provider in Firebase Console before iOS release
   - verify callable Functions still work after App Check token activation:
@@ -165,17 +165,17 @@ Highest priority launch blockers:
    - upgrade Functions runtime/SDK carefully in a separate pass
    - verify all existing notification, booking, review, and Smart Booking functions after upgrade
 5. App Check:
-   - planned next production hardening step
-   - enable Firebase App Check for Android/iOS after dependency and provider setup
+   - client debug foundation added
+   - enable Firebase App Check provider setup in Firebase Console before enforcement
    - use debug provider first; do not enforce immediately
    - enforce App Check on callable Functions and Firestore only after real device testing
    - prevents basic scripted abuse of AI, booking, demand, worker opportunity, notification, and Firestore surfaces
 
 App Check rollout plan:
 1. Add Flutter dependency:
-   - `firebase_app_check`
+   - `firebase_app_check` added
 2. Initialize App Check early in app startup:
-   - debug provider for development
+   - debug provider for development added
    - Play Integrity or platform provider for Android release
    - DeviceCheck/App Attest style provider for iOS release
 3. Firebase Console setup:
