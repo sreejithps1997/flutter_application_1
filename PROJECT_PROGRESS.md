@@ -22,6 +22,11 @@ Core idea:
 
 Use this section as the master testing checklist when development pauses and the project enters the testing phase.
 
+Planned manual testing date:
+- Real-phone manual testing is planned for July 19, 2026.
+- Until July 19, 2026, continue development normally and add every new feature/security change to this backlog.
+- On July 19, 2026, test on a real Android phone with separate customer, worker, and admin accounts before enabling production enforcement such as App Check.
+
 Testing rule:
 - Whenever a new feature is added, add the important manual/functional/security tests here.
 - During development, focused analyzer checks are still required for touched files.
