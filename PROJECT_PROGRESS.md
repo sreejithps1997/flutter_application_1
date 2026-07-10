@@ -126,6 +126,20 @@ Smart Booking and AI tests:
   - backend creates rejection history under `users/{uid}/verificationNotificationHistory`
   - backend creates an action-required verification notification
   - rejected verification notification routes to the identity verification screen
+- App Check rollout:
+  - pending implementation and manual testing; do not enforce until Android/iOS debug and release devices are registered
+  - add `firebase_app_check` to Flutter dependencies
+  - initialize App Check before normal Firebase-dependent app flows
+  - use debug provider during development/emulator testing
+  - configure Android provider in Firebase Console for release builds
+  - configure iOS provider in Firebase Console before iOS release
+  - verify callable Functions still work after App Check token activation:
+    - `runSmartBookingAiDiagnosis`
+    - `recordSmartDemandSignal`
+    - `claimDemandOpportunity`
+    - `suggestWorkerSignupSkill`
+  - verify Firestore reads/writes still work for customer, worker, and admin accounts before enabling enforcement
+  - only enforce App Check after debug/release devices and backend flows are confirmed
 
 ## Production Readiness Plan
 
@@ -151,9 +165,36 @@ Highest priority launch blockers:
    - upgrade Functions runtime/SDK carefully in a separate pass
    - verify all existing notification, booking, review, and Smart Booking functions after upgrade
 5. App Check:
-   - enable Firebase App Check for Android/iOS
-   - enforce App Check on callable Functions after rollout
-   - prevents basic scripted abuse of AI, booking, and Firestore surfaces
+   - planned next production hardening step
+   - enable Firebase App Check for Android/iOS after dependency and provider setup
+   - use debug provider first; do not enforce immediately
+   - enforce App Check on callable Functions and Firestore only after real device testing
+   - prevents basic scripted abuse of AI, booking, demand, worker opportunity, notification, and Firestore surfaces
+
+App Check rollout plan:
+1. Add Flutter dependency:
+   - `firebase_app_check`
+2. Initialize App Check early in app startup:
+   - debug provider for development
+   - Play Integrity or platform provider for Android release
+   - DeviceCheck/App Attest style provider for iOS release
+3. Firebase Console setup:
+   - register Android app/provider
+   - register iOS app/provider before iOS release
+   - add debug tokens for development devices
+4. Test without enforcement:
+   - login/signup
+   - customer dashboard
+   - Smart Booking AI callable
+   - Smart Demand unknown search callable
+   - Worker Opportunity claim callable
+   - Worker Signup skill callable
+   - booking/payment/help request flows
+   - admin verification/demand/payment/payout flows
+5. Enable enforcement gradually:
+   - start with callable Functions
+   - then Firestore after complete role-based testing
+   - monitor failures before public rollout
 
 AI/Smart Booking production hardening:
 - Move final quota enforcement fully backend-owned:

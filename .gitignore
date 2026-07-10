@@ -16,6 +16,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Local nested duplicate project copy; keep it out of this repo.
+/flutter_application_1/
+
 # IntelliJ related
 *.iml
 *.ipr
