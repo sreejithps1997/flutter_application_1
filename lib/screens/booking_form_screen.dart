@@ -1,8 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../widgets/custom_button.dart';
-import '../widgets/form_section.dart';
+import '../core/theme/workable_design.dart';
+import '../features/bookings/data/booking_repository.dart';
+import '../features/bookings/domain/booking_draft.dart';
+import 'address_management_screen.dart';
+import 'add_new_address_screen.dart';
 import 'customer_booking_confirmation_screen.dart';
 import 'package:intl/intl.dart'; // ⬅️ Add at top if not already
 
@@ -26,134 +27,100 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   final _addressController = TextEditingController();
 
   bool _isLoading = false;
+  bool _didApplyRouteAddress = false;
+  Map<String, dynamic>? _selectedAddress;
+  DateTime? _selectedDate;
+  TimeOfDay? _selectedTime;
 
-  // Future<void> _submitBooking() async {
-  //   if (!_formKey.currentState!.validate()) return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didApplyRouteAddress) return;
 
-  //   setState(() => _isLoading = true);
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['selectedAddress'] is Map) {
+      final address = Map<String, dynamic>.from(args['selectedAddress'] as Map);
+      _applySelectedAddress(address);
+    }
 
-  //   final currentUser = FirebaseAuth.instance.currentUser;
-  //   if (currentUser == null) {
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text("You must be logged in to book a service."),
-  //       ),
-  //     );
-  //     setState(() => _isLoading = false);
-  //     return;
-  //   }
+    _didApplyRouteAddress = true;
+  }
 
-  //   final bookingData = {
-  //     'customerId': currentUser.uid,
-  //     'workerId': widget.workerId ?? '',
-  //     'workerName': widget.workerName ?? '',
-  //     'issue': _issueController.text.trim(),
-  //     'address': _addressController.text.trim(),
-  //     'preferredDate': _dateController.text.trim(),
-  //     'preferredTime': _timeController.text.trim(),
-  //     'status': 'pending',
-  //     'payment': 'Cash', // default method
-  //     'rating': null,
-  //     'createdAt': Timestamp.now(),
-  //   };
+  void _applySelectedAddress(Map<String, dynamic> address) {
+    _selectedAddress = address;
+    _addressController.text = _formatSelectedAddress(address);
+  }
 
-  //   try {
-  //     await FirebaseFirestore.instance.collection('bookings').add(bookingData);
+  String _formatSelectedAddress(Map<String, dynamic> address) {
+    final parts =
+        [
+              address['address'],
+              address['area'],
+              address['landmark'],
+              address['pincode'],
+            ]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .map((part) => part.toString().trim())
+            .toList();
 
-  //     if (mounted) {
-  //       Navigator.pushReplacementNamed(
-  //         context,
-  //         CustomerBookingConfirmationScreen.routeName,
-  //       );
-  //     }
-  //   } catch (e) {
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text("Failed to submit booking. Please try again."),
-  //       ),
-  //     );
-  //   } finally {
-  //     if (mounted) setState(() => _isLoading = false);
-  //   }
-  // }
+    return parts.join(', ');
+  }
+
+  Future<void> _openAddressSelector() async {
+    final selectedAddress = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddressManagementScreen(
+          isSelectionMode: true,
+          selectedAddressId: _selectedAddress?['id']?.toString(),
+        ),
+      ),
+    );
+
+    if (selectedAddress == null || !mounted) return;
+
+    setState(() => _applySelectedAddress(selectedAddress));
+  }
+
+  Future<void> _openSelectedAddressDetails() async {
+    final selectedAddress = _selectedAddress;
+
+    if (selectedAddress == null) {
+      await _openAddressSelector();
+      return;
+    }
+
+    final updatedAddress = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            AddNewAddressScreen(isEdit: true, addressData: selectedAddress),
+      ),
+    );
+
+    if (updatedAddress == null || !mounted) return;
+
+    setState(() => _applySelectedAddress(updatedAddress));
+  }
 
   Future<void> _submitBooking() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("You must be logged in to book a service."),
+    try {
+      await BookingRepository().createBooking(
+        BookingDraft(
+          issue: _issueController.text.trim(),
+          address: _addressController.text.trim(),
+          preferredDate: _dateController.text.trim(),
+          preferredTime: _timeController.text.trim(),
+          scheduledAt: _selectedScheduledAt(),
+          workerId: widget.workerId,
+          workerName: widget.workerName,
+          selectedAddress: _selectedAddress,
         ),
       );
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    // Determine if we actually have a worker selected
-    final hasWorker = (widget.workerId?.trim().isNotEmpty ?? false);
-
-    String status = 'pending_assignment';
-    String? workerId;
-    String? workerName;
-
-    // If worker was pre-selected (normal booking or rebook), re-validate
-    if (hasWorker) {
-      final w = await _getWorker(widget.workerId!.trim());
-      final ok = _isWorkerEligible(w);
-
-      if (!ok) {
-        // Block booking with this worker — show a clear message and stop
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'That worker is no longer available or not eligible. Please choose another professional.',
-              ),
-            ),
-          );
-        }
-        setState(() => _isLoading = false);
-        return;
-        // If you prefer to fall back to workerless booking instead of blocking:
-        // status = 'pending_assignment'; // keep default
-      } else {
-        workerId = widget.workerId!.trim();
-        // take fresh name from worker doc if present; fallback to passed name
-        workerName = (w?['name'] ?? w?['fullName'] ?? widget.workerName ?? '')
-            .toString()
-            .trim();
-        status = 'pending'; // or 'requested' based on your pipeline
-      }
-    }
-
-    // Build payload
-    final Map<String, dynamic> bookingData = {
-      'customerId': currentUser.uid,
-      'issue': _issueController.text.trim(),
-      'address': _addressController.text.trim(),
-      'preferredDate': _dateController.text.trim(),
-      'preferredTime': _timeController.text.trim(),
-      'payment': 'Cash',
-      'rating': null,
-      'createdAt': FieldValue.serverTimestamp(),
-      'status': status,
-    };
-
-    // Only include worker fields if we actually have them
-    if (workerId != null && workerId.isNotEmpty) {
-      bookingData['workerId'] = workerId;
-      bookingData['workerName'] = workerName;
-    } else {
-      bookingData['workerId'] = null;
-      bookingData['workerName'] = null;
-    }
-
-    try {
-      await FirebaseFirestore.instance.collection('bookings').add(bookingData);
 
       if (mounted) {
         Navigator.pushReplacementNamed(
@@ -162,36 +129,28 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Failed to submit booking. Please try again."),
-        ),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_bookingErrorMessage(e))));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<Map<String, dynamic>?> _getWorker(String id) async {
-    final s = await FirebaseFirestore.instance
-        .collection('workers')
-        .doc(id)
-        .get();
-    return s.data();
+  DateTime? _selectedScheduledAt() {
+    final date = _selectedDate;
+    final time = _selectedTime;
+    if (date == null || time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  bool _isWorkerEligible(Map<String, dynamic>? w) {
-    if (w == null) return false;
-    final visible = (w['visibleToUsers'] ?? false) == true;
-    final img = (w['imageUrl'] ?? '').toString().trim().isNotEmpty;
-    final selfieOk = (w['verification']?['selfie'] ?? '') == 'verified';
-    final tier = (w['verification']?['tier'] ?? 'new') as String;
-    final hasLoc = w['location'] != null;
-    final disabled = (w['accountDisabled'] ?? false) == true;
-
-    // Align with dashboard logic; tighten if you want
-    final tierOk = tier == 'verified' || tier == 'police_verified';
-    return visible && !disabled && img && selfieOk && hasLoc && tierOk;
+  String _bookingErrorMessage(Object error) {
+    final message = error.toString().replaceFirst('Bad state: ', '').trim();
+    if (message.isEmpty) {
+      return 'Failed to submit booking. Please try again.';
+    }
+    return message;
   }
 
   @override
@@ -209,24 +168,23 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
         widget.workerId?.isNotEmpty == true &&
         widget.workerName?.isNotEmpty == true;
     final workerDisplay = hasWorker ? "Book Service" : "New Booking";
+    final hasSelectedAddress = _addressController.text.trim().isNotEmpty;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: Text(
           workerDisplay,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 20),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-        centerTitle: true,
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         leading: IconButton(
           icon: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
+              color: WorkableDesign.canvas,
+              borderRadius: BorderRadius.circular(WorkableDesign.radius),
             ),
             child: const Icon(Icons.arrow_back_ios, size: 16),
           ),
@@ -240,7 +198,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
             Container(
               width: double.infinity,
               decoration: const BoxDecoration(
-                color: Colors.white,
+                color: WorkableDesign.surface,
                 borderRadius: BorderRadius.only(
                   bottomLeft: Radius.circular(30),
                   bottomRight: Radius.circular(30),
@@ -255,17 +213,14 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                     height: 80,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Colors.deepPurple.shade400,
-                          Colors.deepPurple.shade600,
-                        ],
+                        colors: [WorkableDesign.primary, WorkableDesign.accent],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(25),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.deepPurple.withOpacity(0.3),
+                          color: WorkableDesign.primary.withValues(alpha: 0.18),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -283,13 +238,16 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
+                      color: WorkableDesign.ink,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     "Fill in the details below to book your service",
-                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: WorkableDesign.muted,
+                    ),
                   ),
                   const SizedBox(height: 30),
                 ],
@@ -388,15 +346,11 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                         margin: const EdgeInsets.only(bottom: 24),
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
+                          color: WorkableDesign.surface,
+                          borderRadius: BorderRadius.circular(
+                            WorkableDesign.radius,
+                          ),
+                          border: Border.all(color: WorkableDesign.border),
                         ),
                         child: Row(
                           children: [
@@ -404,12 +358,16 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
-                                color: Colors.deepPurple.shade50,
-                                borderRadius: BorderRadius.circular(15),
+                                color: WorkableDesign.primary.withValues(
+                                  alpha: 0.1,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                               ),
                               child: Icon(
                                 Icons.person,
-                                color: Colors.deepPurple.shade400,
+                                color: WorkableDesign.primary,
                                 size: 28,
                               ),
                             ),
@@ -422,7 +380,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                     "Assigned Worker",
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey[600],
+                                      color: WorkableDesign.muted,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -432,7 +390,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
+                                      color: WorkableDesign.ink,
                                     ),
                                   ),
                                 ],
@@ -444,14 +402,16 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.green.shade50,
+                                color: WorkableDesign.success.withValues(
+                                  alpha: 0.1,
+                                ),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 "Available",
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.green.shade700,
+                                  color: WorkableDesign.success,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -465,15 +425,11 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                       margin: const EdgeInsets.only(bottom: 20),
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
+                        color: WorkableDesign.surface,
+                        borderRadius: BorderRadius.circular(
+                          WorkableDesign.radius,
+                        ),
+                        border: Border.all(color: WorkableDesign.border),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -483,12 +439,16 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.orange.shade50,
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: WorkableDesign.warning.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    WorkableDesign.radius,
+                                  ),
                                 ),
                                 child: Icon(
                                   Icons.description,
-                                  color: Colors.orange.shade600,
+                                  color: WorkableDesign.warning,
                                   size: 20,
                                 ),
                               ),
@@ -498,7 +458,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
+                                  color: WorkableDesign.ink,
                                 ),
                               ),
                             ],
@@ -511,26 +471,32 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               hintText:
                                   "e.g., Kitchen tap is leaking, need urgent repair...",
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
+                                  color: WorkableDesign.border,
                                 ),
                               ),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
+                                  color: WorkableDesign.border,
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.deepPurple.shade400,
+                                  color: WorkableDesign.primary,
                                   width: 2,
                                 ),
                               ),
                               filled: true,
-                              fillColor: Colors.grey.shade50,
+                              fillColor: WorkableDesign.canvas,
                               contentPadding: const EdgeInsets.all(16),
                             ),
                             maxLines: 4,
@@ -548,15 +514,11 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                       margin: const EdgeInsets.only(bottom: 20),
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
+                        color: WorkableDesign.surface,
+                        borderRadius: BorderRadius.circular(
+                          WorkableDesign.radius,
+                        ),
+                        border: Border.all(color: WorkableDesign.border),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,22 +528,42 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.red.shade50,
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: WorkableDesign.danger.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    WorkableDesign.radius,
+                                  ),
                                 ),
                                 child: Icon(
                                   Icons.location_on,
-                                  color: Colors.red.shade600,
+                                  color: WorkableDesign.danger,
                                   size: 20,
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              const Text(
-                                "Service Address",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
+                              const Expanded(
+                                child: Text(
+                                  "Service Address",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: WorkableDesign.ink,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: _openAddressSelector,
+                                icon: Icon(
+                                  hasSelectedAddress
+                                      ? Icons.swap_horiz
+                                      : Icons.add_location_alt,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  hasSelectedAddress
+                                      ? "Change Address"
+                                      : "Add Address",
                                 ),
                               ),
                             ],
@@ -589,31 +571,48 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                           const SizedBox(height: 16),
                           TextFormField(
                             controller: _addressController,
+                            readOnly: true,
+                            onTap: _openAddressSelector,
                             decoration: InputDecoration(
                               labelText: "Complete Address",
-                              hintText:
-                                  "Enter your full address with landmarks",
+                              hintText: "Add a saved address for this booking",
+                              suffixIcon: IconButton(
+                                onPressed: hasSelectedAddress
+                                    ? _openSelectedAddressDetails
+                                    : _openAddressSelector,
+                                icon: Icon(
+                                  hasSelectedAddress
+                                      ? Icons.visibility_outlined
+                                      : Icons.add_circle_outline,
+                                ),
+                              ),
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
+                                  color: WorkableDesign.border,
                                 ),
                               ),
                               enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
+                                  color: WorkableDesign.border,
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(15),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 borderSide: BorderSide(
-                                  color: Colors.deepPurple.shade400,
+                                  color: WorkableDesign.primary,
                                   width: 2,
                                 ),
                               ),
                               filled: true,
-                              fillColor: Colors.grey.shade50,
+                              fillColor: WorkableDesign.canvas,
                               contentPadding: const EdgeInsets.all(16),
                             ),
                             validator: (val) =>
@@ -621,6 +620,57 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                 ? "Address is required"
                                 : null,
                           ),
+                          if (_selectedAddress != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: WorkableDesign.danger.withValues(
+                                  alpha: 0.08,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
+                                border: Border.all(
+                                  color: WorkableDesign.danger.withValues(
+                                    alpha: 0.18,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.location_searching,
+                                    color: WorkableDesign.danger,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      [
+                                            _selectedAddress!['label'],
+                                            _selectedAddress!['contact'],
+                                          ]
+                                          .where(
+                                            (part) =>
+                                                part != null &&
+                                                part
+                                                    .toString()
+                                                    .trim()
+                                                    .isNotEmpty,
+                                          )
+                                          .join(' - '),
+                                      style: TextStyle(
+                                        color: WorkableDesign.danger,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -630,15 +680,11 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                       margin: const EdgeInsets.only(bottom: 30),
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
+                        color: WorkableDesign.surface,
+                        borderRadius: BorderRadius.circular(
+                          WorkableDesign.radius,
+                        ),
+                        border: Border.all(color: WorkableDesign.border),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -648,12 +694,16 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: WorkableDesign.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    WorkableDesign.radius,
+                                  ),
                                 ),
                                 child: Icon(
                                   Icons.schedule,
-                                  color: Colors.blue.shade600,
+                                  color: WorkableDesign.primary,
                                   size: 20,
                                 ),
                               ),
@@ -663,7 +713,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
+                                  color: WorkableDesign.ink,
                                 ),
                               ),
                             ],
@@ -677,35 +727,44 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                   decoration: InputDecoration(
                                     labelText: "Preferred Date",
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
+                                        color: WorkableDesign.border,
                                       ),
                                     ),
                                     enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
+                                        color: WorkableDesign.border,
                                       ),
                                     ),
                                     focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.deepPurple.shade400,
+                                        color: WorkableDesign.primary,
                                         width: 2,
                                       ),
                                     ),
                                     filled: true,
-                                    fillColor: Colors.grey.shade50,
+                                    fillColor: WorkableDesign.canvas,
                                     suffixIcon: Container(
                                       margin: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
-                                        color: Colors.deepPurple.shade50,
-                                        borderRadius: BorderRadius.circular(8),
+                                        color: WorkableDesign.primary
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(
+                                          WorkableDesign.radius,
+                                        ),
                                       ),
                                       child: Icon(
                                         Icons.calendar_today,
-                                        color: Colors.deepPurple.shade400,
+                                        color: WorkableDesign.primary,
                                         size: 20,
                                       ),
                                     ),
@@ -724,11 +783,18 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                       ),
                                     );
                                     if (pickedDate != null) {
-                                      _dateController.text = DateFormat(
-                                        'yyyy-MM-dd',
-                                      ).format(pickedDate);
+                                      setState(() {
+                                        _selectedDate = pickedDate;
+                                        _dateController.text = DateFormat(
+                                          'yyyy-MM-dd',
+                                        ).format(pickedDate);
+                                      });
                                     }
                                   },
+                                  validator: (value) =>
+                                      value == null || value.trim().isEmpty
+                                      ? "Date is required"
+                                      : null,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -738,35 +804,44 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                   decoration: InputDecoration(
                                     labelText: "Preferred Time",
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
+                                        color: WorkableDesign.border,
                                       ),
                                     ),
                                     enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
+                                        color: WorkableDesign.border,
                                       ),
                                     ),
                                     focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(15),
+                                      borderRadius: BorderRadius.circular(
+                                        WorkableDesign.radius,
+                                      ),
                                       borderSide: BorderSide(
-                                        color: Colors.deepPurple.shade400,
+                                        color: WorkableDesign.primary,
                                         width: 2,
                                       ),
                                     ),
                                     filled: true,
-                                    fillColor: Colors.grey.shade50,
+                                    fillColor: WorkableDesign.canvas,
                                     suffixIcon: Container(
                                       margin: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
-                                        color: Colors.deepPurple.shade50,
-                                        borderRadius: BorderRadius.circular(8),
+                                        color: WorkableDesign.primary
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(
+                                          WorkableDesign.radius,
+                                        ),
                                       ),
                                       child: Icon(
                                         Icons.access_time,
-                                        color: Colors.deepPurple.shade400,
+                                        color: WorkableDesign.primary,
                                         size: 20,
                                       ),
                                     ),
@@ -780,15 +855,44 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                           initialTime: TimeOfDay.now(),
                                         );
                                     if (pickedTime != null) {
-                                      _timeController.text = pickedTime.format(
-                                        context,
-                                      );
+                                      if (!context.mounted) return;
+                                      setState(() {
+                                        _selectedTime = pickedTime;
+                                        _timeController.text = pickedTime
+                                            .format(context);
+                                      });
                                     }
                                   },
+                                  validator: (value) =>
+                                      value == null || value.trim().isEmpty
+                                      ? "Time is required"
+                                      : null,
                                 ),
                               ),
                             ],
                           ),
+                          if (hasWorker) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: WorkableDesign.primary,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'This slot will be checked against the worker schedule and service radius before booking.',
+                                    style: TextStyle(
+                                      color: WorkableDesign.primary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -799,13 +903,10 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                             width: double.infinity,
                             height: 56,
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.deepPurple.shade300,
-                                  Colors.deepPurple.shade400,
-                                ],
+                              color: WorkableDesign.primary,
+                              borderRadius: BorderRadius.circular(
+                                WorkableDesign.radius,
                               ),
-                              borderRadius: BorderRadius.circular(16),
                             ),
                             child: const Center(
                               child: CircularProgressIndicator(
@@ -818,20 +919,17 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                         : Container(
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.deepPurple.shade400,
-                                  Colors.deepPurple.shade600,
-                                ],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
+                              color: WorkableDesign.primary,
+                              borderRadius: BorderRadius.circular(
+                                WorkableDesign.radius,
                               ),
-                              borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.deepPurple.withOpacity(0.3),
-                                  blurRadius: 15,
-                                  offset: const Offset(0, 8),
+                                  color: WorkableDesign.primary.withValues(
+                                    alpha: 0.16,
+                                  ),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 6),
                                 ),
                               ],
                             ),
@@ -839,7 +937,9 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                               color: Colors.transparent,
                               child: InkWell(
                                 onTap: _submitBooking,
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(
+                                  WorkableDesign.radius,
+                                ),
                                 child: const Padding(
                                   padding: EdgeInsets.symmetric(vertical: 16),
                                   child: Row(

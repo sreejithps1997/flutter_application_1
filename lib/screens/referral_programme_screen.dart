@@ -1,6 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
 
 class ReferralProgrammeScreen extends StatefulWidget {
   static const routeName = '/referral-programme';
@@ -13,82 +18,397 @@ class ReferralProgrammeScreen extends StatefulWidget {
 }
 
 class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
-  bool copied = false;
+  bool _copied = false;
 
-  final List<Map<String, String>> referralHistory = [
-    {
-      'name': 'Priya Sharma',
-      'status': 'completed',
-      'reward': '₹100',
-      'date': '2 days ago',
-      'avatar': 'PS',
-    },
-    {
-      'name': 'Raj Kumar',
-      'status': 'pending',
-      'reward': '₹100',
-      'date': '5 days ago',
-      'avatar': 'RK',
-    },
-    {
-      'name': 'Anjali Singh',
-      'status': 'completed',
-      'reward': '₹100',
-      'date': '1 week ago',
-      'avatar': 'AS',
-    },
-    {
-      'name': 'Vikram Patel',
-      'status': 'rejected',
-      'reward': '₹0',
-      'date': '2 weeks ago',
-      'avatar': 'VP',
-    },
-  ];
+  String _fallbackCode(User user) {
+    final source = (user.displayName?.trim().isNotEmpty ?? false)
+        ? user.displayName!.trim()
+        : user.email?.split('@').first ?? user.uid;
+    final clean = source
+        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+        .toUpperCase()
+        .padRight(4, 'X');
+    return '${clean.substring(0, clean.length.clamp(0, 6))}${user.uid.substring(0, 4).toUpperCase()}';
+  }
 
-  void handleCopyCode() async {
-    await Clipboard.setData(const ClipboardData(text: 'JOHN2024'));
-    setState(() => copied = true);
+  Stream<QuerySnapshot<Map<String, dynamic>>> _referralsStream(String uid) {
+    return FirebaseFirestore.instance
+        .collection('referrals')
+        .where('referrerId', isEqualTo: uid)
+        .snapshots();
+  }
+
+  Future<String> _ensureReferralCode(User user) async {
+    final userRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid);
+    final snapshot = await userRef.get();
+    final existing = snapshot.data()?['referralCode']?.toString();
+    if (existing != null && existing.trim().isNotEmpty) return existing;
+
+    final code = _fallbackCode(user);
+    await userRef.set({
+      'referralCode': code,
+      'referralCodeCreatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return code;
+  }
+
+  Future<void> _copyInviteText(String code) async {
+    await Clipboard.setData(ClipboardData(text: _inviteText(code)));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    _showSnack('Invite text copied');
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => copied = false);
+      if (mounted) setState(() => _copied = false);
     });
   }
 
-  Widget buildReferralItem(Map<String, String> referral) {
-    IconData icon;
-    Color color;
+  String _inviteText(String code) {
+    return 'Use my Workable referral code $code to book trusted local help faster.';
+  }
 
-    switch (referral['status']) {
-      case 'completed':
-        icon = LucideIcons.check;
-        color = Colors.green;
-        break;
-      case 'pending':
-        icon = LucideIcons.clock;
-        color = Colors.orange;
-        break;
-      default:
-        icon = LucideIcons.x;
-        color = Colors.red;
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(
+        title: const Text('Referral Programme'),
+        leading: IconButton(
+          icon: const Icon(LucideIcons.arrowLeft),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: user == null
+          ? const WorkableEmptyState(
+              icon: LucideIcons.gift,
+              title: 'Sign in required',
+              message: 'Please sign in to access your referral programme.',
+            )
+          : FutureBuilder<String>(
+              future: _ensureReferralCode(user),
+              builder: (context, codeSnapshot) {
+                if (codeSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final code = codeSnapshot.data ?? _fallbackCode(user);
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _referralsStream(user.uid),
+                  builder: (context, referralSnapshot) {
+                    final docs = referralSnapshot.data?.docs ?? [];
+                    final completed = docs
+                        .where((doc) => doc.data()['status'] == 'completed')
+                        .length;
+                    final pending = docs
+                        .where((doc) => doc.data()['status'] == 'pending')
+                        .length;
+                    final earned = docs.fold<num>(0, (total, doc) {
+                      final data = doc.data();
+                      final reward = data['rewardAmount'];
+                      if (data['status'] == 'completed' && reward is num) {
+                        return total + reward;
+                      }
+                      return total;
+                    });
+
+                    return ListView(
+                      padding: const EdgeInsets.all(WorkableDesign.pagePadding),
+                      children: [
+                        const WorkablePageHeader(
+                          title: 'Invite trusted people',
+                          subtitle:
+                              'Share Workable when someone needs help. They get a smoother first booking, you grow the community.',
+                          icon: LucideIcons.gift,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildCodeCard(code),
+                        const SizedBox(height: 16),
+                        _buildStats(completed, pending, earned),
+                        const SizedBox(height: 16),
+                        _buildHowItWorks(),
+                        const SizedBox(height: 16),
+                        _buildShareCard(code),
+                        const SizedBox(height: 16),
+                        _buildHistory(docs),
+                        const SizedBox(height: 16),
+                        _buildTermsNote(),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildCodeCard(String code) {
+    return WorkableSectionCard(
+      color: WorkableDesign.ink,
+      borderColor: WorkableDesign.ink,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your referral code',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  code,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: () => _copyInviteText(code),
+                icon: Icon(_copied ? LucideIcons.check : LucideIcons.copy),
+                label: Text(_copied ? 'Copied' : 'Copy'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStats(int completed, int pending, num earned) {
+    return Row(
+      children: [
+        _statCard(
+          LucideIcons.checkCircle,
+          completed.toString(),
+          'Completed',
+          WorkableDesign.success,
+        ),
+        const SizedBox(width: 10),
+        _statCard(
+          LucideIcons.clock,
+          pending.toString(),
+          'Pending',
+          WorkableDesign.warning,
+        ),
+        const SizedBox(width: 10),
+        _statCard(
+          LucideIcons.wallet,
+          'Rs ${earned.round()}',
+          'Earned',
+          WorkableDesign.primary,
+        ),
+      ],
+    );
+  }
+
+  Widget _statCard(IconData icon, String value, String label, Color color) {
+    return Expanded(
+      child: WorkableSectionCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(color: WorkableDesign.muted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHowItWorks() {
+    const steps = [
+      ('Share your code', 'Send your referral code to a friend.'),
+      ('Friend books help', 'They sign up and complete their first booking.'),
+      ('Rewards unlock', 'Credits are added after successful completion.'),
+    ];
+
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'How it works',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...List.generate(steps.length, (index) {
+            final step = steps[index];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 13,
+                    backgroundColor: WorkableDesign.primary.withValues(
+                      alpha: 0.1,
+                    ),
+                    child: Text(
+                      '${index + 1}',
+                      style: const TextStyle(
+                        color: WorkableDesign.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          step.$1,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        Text(
+                          step.$2,
+                          style: const TextStyle(
+                            color: WorkableDesign.muted,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareCard(String code) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Share invite',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Native share integration can be added with a share plugin later. For now this creates a ready message you can paste anywhere.',
+            style: TextStyle(color: WorkableDesign.muted, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => _copyInviteText(code),
+                  icon: const Icon(LucideIcons.share2),
+                  label: const Text('Copy Invite'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: code));
+                    if (mounted) _showSnack('Referral code copied');
+                  },
+                  icon: const Icon(LucideIcons.copy),
+                  label: const Text('Copy Code'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistory(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    if (docs.isEmpty) {
+      return const WorkableEmptyState(
+        icon: LucideIcons.users,
+        title: 'No referrals yet',
+        message:
+            'Referral activity will appear here when friends use your code.',
+      );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade100),
-        borderRadius: BorderRadius.circular(12),
+    final sorted = docs.toList()
+      ..sort((a, b) {
+        final ad = _dateFrom(a.data()['createdAt']);
+        final bd = _dateFrom(b.data()['createdAt']);
+        return bd.compareTo(ad);
+      });
+
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recent referrals',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...sorted.take(5).map((doc) => _historyItem(doc.data())),
+        ],
       ),
+    );
+  }
+
+  Widget _historyItem(Map<String, dynamic> data) {
+    final status = data['status']?.toString() ?? 'pending';
+    final color = status == 'completed'
+        ? WorkableDesign.success
+        : status == 'rejected'
+        ? WorkableDesign.danger
+        : WorkableDesign.warning;
+    final name = data['friendName']?.toString() ?? 'Friend';
+    final reward = data['rewardAmount'] is num
+        ? 'Rs ${(data['rewardAmount'] as num).round()}'
+        : 'Pending';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 22,
-            backgroundColor: Colors.blueAccent,
+            backgroundColor: WorkableDesign.primary.withValues(alpha: 0.1),
             child: Text(
-              referral['avatar']!,
+              _initials(name),
               style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+                color: WorkableDesign.primary,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ),
@@ -97,527 +417,46 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
                 Text(
-                  referral['name']!,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  referral['date']!,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  reward,
+                  style: const TextStyle(color: WorkableDesign.muted),
                 ),
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                referral['reward']!,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Icon(icon, size: 12, color: color),
-                    const SizedBox(width: 4),
-                    Text(
-                      referral['status']!,
-                      style: TextStyle(color: color, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          WorkableStatusPill(label: status, color: color),
         ],
       ),
     );
   }
 
-  Widget buildStatCard(
-    IconData icon,
-    String value,
-    String label,
-    Color color,
-    String? trend,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: color.withOpacity(0.15),
-                child: Icon(icon, size: 18, color: color),
-              ),
-              const Spacer(),
-              if (trend != null)
-                Row(
-                  children: [
-                    const Icon(
-                      LucideIcons.trendingUp,
-                      size: 14,
-                      color: Colors.green,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '+$trend%',
-                      style: const TextStyle(color: Colors.green, fontSize: 12),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(label, style: const TextStyle(color: Colors.grey)),
-        ],
+  Widget _buildTermsNote() {
+    return const WorkableSectionCard(
+      child: WorkableInfoRow(
+        icon: LucideIcons.info,
+        text:
+            'Referral rewards should be credited only after a valid first booking is completed and payment is confirmed.',
       ),
     );
   }
 
-  Widget buildShareButton(
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onPressed,
-  ) {
-    return InkWell(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 6),
-            Text(label, style: TextStyle(color: color, fontSize: 13)),
-          ],
-        ),
-      ),
-    );
+  DateTime _dateFrom(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        leading: const BackButton(color: Colors.black87),
-        title: const Text(
-          'Referral Programme',
-          style: TextStyle(color: Colors.black87),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Hero
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Colors.blue, Colors.lightBlueAccent],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Invite & Earn!",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "Refer friends and get rewarded",
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        LucideIcons.gift,
-                        color: Colors.white,
-                        size: 36,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'JOHN2024',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: handleCopyCode,
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.blue,
-                          ),
-                          icon: Icon(
-                            copied ? LucideIcons.check : LucideIcons.copy,
-                            size: 16,
-                          ),
-                          label: Text(copied ? 'Copied!' : 'Copy'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : 'F';
+  }
 
-            // How it works
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade100),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(LucideIcons.star, color: Colors.amber, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        "How It Works",
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ...[
-                    {
-                      'step': '1',
-                      'title': 'Share your code',
-                      'desc': 'Friend signs up using your referral code',
-                    },
-                    {
-                      'step': '2',
-                      'title': 'Friend completes first booking',
-                      'desc': 'Minimum booking value of ₹200',
-                    },
-                    {
-                      'step': '3',
-                      'title': 'Both get rewarded!',
-                      'desc': 'You get ₹100, friend gets ₹50 credit',
-                    },
-                  ].map(
-                    (step) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundColor: Colors.blue.shade100,
-                            child: Text(
-                              step['step']!,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  step['title']!,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  step['desc']!,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Stats
-            Row(
-              children: [
-                Expanded(
-                  child: buildStatCard(
-                    LucideIcons.users,
-                    "12",
-                    "Friends Referred",
-                    Colors.blue,
-                    "25",
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: buildStatCard(
-                    LucideIcons.wallet,
-                    "₹850",
-                    "Total Earned",
-                    Colors.green,
-                    "15",
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Share
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade100),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(LucideIcons.share2, size: 20, color: Colors.blue),
-                      SizedBox(width: 8),
-                      Text(
-                        "Share With Friends",
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    children: [
-                      buildShareButton(
-                        LucideIcons.messageCircle,
-                        "WhatsApp",
-                        Colors.green,
-                        () {},
-                      ),
-                      buildShareButton(
-                        LucideIcons.mail,
-                        "Email",
-                        Colors.blue,
-                        () {},
-                      ),
-                      buildShareButton(
-                        LucideIcons.facebook,
-                        "Facebook",
-                        Colors.blue.shade800,
-                        () {},
-                      ),
-                      buildShareButton(
-                        LucideIcons.twitter,
-                        "Twitter",
-                        Colors.lightBlue,
-                        () {},
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Campaign
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Colors.purple, Colors.pink],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(LucideIcons.trophy, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text(
-                        "Special Campaign",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Spacer(),
-                      Icon(LucideIcons.calendar, color: Colors.white, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        "5 days left",
-                        style: TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Double Rewards Week!",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Text(
-                    "Get ₹200 for each successful referral instead of ₹100",
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Text(
-                        "Progress: 3/10 referrals",
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      const Spacer(),
-                      Container(
-                        width: 80,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: Colors.white30,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: FractionallySizedBox(
-                          widthFactor: 0.3,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Referral History
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
-                  "Recent Referrals",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text("View All", style: TextStyle(color: Colors.blue)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ...referralHistory.take(3).map(buildReferralItem).toList(),
-            const SizedBox(height: 16),
-
-            // Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () {},
-                    child: const Text("Invite Friends"),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () {},
-                    child: const Text("View Terms"),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-            const Text(
-              "Referral rewards are credited within 24 hours",
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 }

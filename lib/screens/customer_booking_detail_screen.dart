@@ -4,9 +4,13 @@ import '../widgets/custom_button.dart';
 import '../widgets/star_rating.dart';
 import 'customer_reschedule_screen.dart';
 import 'chat_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../utils/string_utils.dart'; // for safeInitials()
 import '../services/booking_flow.dart'; // you already have this elsewhere
+import '../services/chat_service.dart';
+import '../widgets/booking_status_timeline.dart';
+import '../core/theme/workable_design.dart';
+import '../features/bookings/data/booking_action_repository.dart';
+import 'customer_payment_screen.dart';
 
 class CustomerBookingDetailScreen extends StatelessWidget {
   static const routeName = '/customer-booking-detail';
@@ -14,6 +18,29 @@ class CustomerBookingDetailScreen extends StatelessWidget {
   final Map<String, dynamic> booking;
 
   const CustomerBookingDetailScreen({super.key, required this.booking});
+
+  String? _firstTextValue(List<String> keys) {
+    for (final key in keys) {
+      final value = booking[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  Future<Map<String, dynamic>?> _loadWorker(String workerId) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('workers')
+        .doc(workerId)
+        .get();
+    return doc.data();
+  }
 
   void _confirmCancel(BuildContext context, String bookingId) {
     showDialog(
@@ -47,10 +74,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
 
   void _cancelBooking(BuildContext context, String bookingId) async {
     try {
-      await FirebaseFirestore.instance
-          .collection('bookings')
-          .doc(bookingId)
-          .update({'status': 'cancelled'});
+      await BookingActionRepository().cancelBooking(bookingId);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,25 +105,120 @@ class CustomerBookingDetailScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _confirmWorkCompleted(
+    BuildContext context,
+    String bookingId,
+  ) async {
+    try {
+      await BookingActionRepository().confirmCustomerCompletion(bookingId);
+
+      if (!context.mounted) return;
+      Navigator.pushNamed(
+        context,
+        CustomerPaymentScreen.routeName,
+        arguments: bookingId,
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Unable to confirm completion.")),
+      );
+    }
+  }
+
+  Future<void> _reportCompletionIssue(
+    BuildContext context,
+    String bookingId,
+  ) async {
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("Report an Issue"),
+        content: TextField(
+          controller: reasonController,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: "Tell us what is not completed or what went wrong",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, reasonController.text.trim()),
+            child: const Text("Submit"),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+
+    if (reason == null || reason.isEmpty) return;
+
+    try {
+      await BookingActionRepository().disputeCompletion(
+        bookingId,
+        reason: reason,
+      );
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Issue reported to support.")),
+      );
+      Navigator.pop(context);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Unable to report issue.")));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = booking['status'] ?? 'pending';
     final bookingId = booking['id'] ?? '';
-    final bool isCompleted = status.toLowerCase() == 'completed';
+    final statusText = status.toString().toLowerCase();
+    final paymentStatus = (booking['paymentStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+    final bool isCompleted =
+        statusText == 'completed' ||
+        statusText == 'paid' ||
+        paymentStatus == 'paid';
+    final bool needsCompletionConfirmation =
+        statusText == 'completion_requested';
+    final bool hasPaymentState =
+        {
+          'payment_due',
+          'payment_initiated',
+          'payment_under_review',
+          'completed',
+          'paid',
+        }.contains(statusText) ||
+        {
+          'customer_reported_paid',
+          'cash_pending_confirmation',
+          'payment_under_review',
+          'payment_rejected',
+          'paid',
+        }.contains(paymentStatus);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text(
           "Booking Details",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(WorkableDesign.pagePadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -108,15 +227,9 @@ class CustomerBookingDetailScreen extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                color: WorkableDesign.surface,
+                borderRadius: BorderRadius.circular(WorkableDesign.radius),
+                border: Border.all(color: WorkableDesign.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,7 +251,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: _statusColor(status).withOpacity(0.1),
+                          color: _statusColor(status).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
@@ -282,7 +395,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
+                    color: Colors.grey.withValues(alpha: 0.1),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -589,10 +702,54 @@ class CustomerBookingDetailScreen extends StatelessWidget {
               const SizedBox(height: 16),
               CustomButton(
                 text: "Chat with Worker",
-                onPressed: () {
-                  final workerId = booking['workerId'];
-                  final workerName = booking['workerName'];
-                  if (workerId != null && workerName != null) {
+                onPressed: () async {
+                  final workerId = booking['workerId']?.toString();
+                  final workerName = booking['workerName']?.toString();
+                  if (workerId != null &&
+                      workerId.trim().isNotEmpty &&
+                      workerName != null &&
+                      workerName.trim().isNotEmpty) {
+                    Map<String, dynamic>? worker;
+                    try {
+                      worker = await _loadWorker(workerId);
+                    } catch (_) {
+                      worker = null;
+                    }
+                    if (!context.mounted) return;
+
+                    final service =
+                        _firstTextValue([
+                          'service',
+                          'serviceName',
+                          'category',
+                          'subCategory',
+                          'workType',
+                        ]) ??
+                        worker?['service']?.toString() ??
+                        worker?['profession']?.toString();
+                    final rating =
+                        _asDouble(worker?['averageRating']) ??
+                        _asDouble(worker?['rating']);
+
+                    try {
+                      await ChatService().ensureChatForBooking(
+                        otherUserId: workerId,
+                        otherUserName: workerName,
+                        userRole: 'customer',
+                        bookingId: bookingId,
+                        service: service,
+                      );
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Unable to start chat right now"),
+                        ),
+                      );
+                      return;
+                    }
+                    if (!context.mounted) return;
+
                     Navigator.pushNamed(
                       context,
                       ChatScreen.routeName,
@@ -600,6 +757,9 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                         'chatWithId': workerId,
                         'chatWithName': workerName,
                         'userRole': 'customer',
+                        'bookingId': bookingId,
+                        'workerService': service,
+                        'workerRating': rating,
                       },
                     );
                   } else {
@@ -620,7 +780,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
+                    color: Colors.grey.withValues(alpha: 0.1),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -679,9 +839,28 @@ class CustomerBookingDetailScreen extends StatelessWidget {
             ),
 
             const SizedBox(height: 16),
+            BookingStatusTimeline(status: status.toString()),
+            const SizedBox(height: 16),
+
+            if (needsCompletionConfirmation) ...[
+              _buildCompletionConfirmationCard(context, bookingId),
+              const SizedBox(height: 16),
+            ],
+
+            if (status.toLowerCase() == 'payment_due') ...[
+              _buildPaymentDueCard(context, bookingId),
+              const SizedBox(height: 16),
+            ],
+
+            if (hasPaymentState) ...[
+              _buildPaymentStatusCard(context, bookingId),
+              const SizedBox(height: 16),
+            ],
 
             // Payment Details - Only show if completed
-            if (isCompleted) ...[
+            if (isCompleted ||
+                status.toLowerCase() == 'payment_under_review' ||
+                status.toLowerCase() == 'payment_initiated') ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
@@ -690,7 +869,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
+                      color: Colors.grey.withValues(alpha: 0.1),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -803,7 +982,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
+                          color: Colors.grey.withValues(alpha: 0.1),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -957,6 +1136,219 @@ class CustomerBookingDetailScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildCompletionConfirmationCard(
+    BuildContext context,
+    String bookingId,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEDD5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.task_alt, color: Color(0xFFEA580C)),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Worker says the job is completed",
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      "Please confirm only after checking the work. Payment starts after your confirmation.",
+                      style: TextStyle(color: Color(0xFF9A3412), height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () => _confirmWorkCompleted(context, bookingId),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text("Confirm Work Completed"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: () => _reportCompletionIssue(context, bookingId),
+              icon: const Icon(Icons.report_problem_outlined),
+              label: const Text("Report Issue"),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+                side: BorderSide(color: Colors.red.shade200),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentDueCard(BuildContext context, String bookingId) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Payment is due",
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "Choose UPI, PhonePe, Google Pay, Paytm, or cash to finish this booking.",
+            style: TextStyle(color: Color(0xFF1E3A8A), height: 1.35),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pushNamed(
+                  context,
+                  CustomerPaymentScreen.routeName,
+                  arguments: bookingId,
+                );
+              },
+              icon: const Icon(Icons.payment),
+              label: const Text("Continue to Payment"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentStatusCard(BuildContext context, String bookingId) {
+    final status = (booking['status'] ?? '').toString().toLowerCase();
+    final paymentStatus = (booking['paymentStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+    final state = _BookingPaymentState.from(booking);
+    final canContinuePayment =
+        status == 'payment_due' || paymentStatus == 'payment_rejected';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: state.color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        border: Border.all(color: state.color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(state.icon, color: state.color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      state.title,
+                      style: TextStyle(
+                        color: state.color,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      state.message,
+                      style: const TextStyle(
+                        color: WorkableDesign.ink,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (canContinuePayment) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    CustomerPaymentScreen.routeName,
+                    arguments: bookingId,
+                  );
+                },
+                icon: const Icon(Icons.payment),
+                label: Text(
+                  paymentStatus == 'payment_rejected'
+                      ? 'Try Payment Again'
+                      : 'Continue to Payment',
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Color _statusColor(String status) {
     switch (status.toLowerCase()) {
       case 'confirmed':
@@ -965,6 +1357,14 @@ class CustomerBookingDetailScreen extends StatelessWidget {
         return Colors.orange;
       case 'cancelled':
         return Colors.red;
+      case 'completion_requested':
+        return Colors.deepOrange;
+      case 'payment_due':
+      case 'payment_initiated':
+      case 'payment_under_review':
+        return Colors.blue;
+      case 'completion_disputed':
+        return Colors.redAccent;
       case 'completed':
         return Colors.blueGrey;
       case 'reschedule_requested':
@@ -982,6 +1382,14 @@ class CustomerBookingDetailScreen extends StatelessWidget {
         return Icons.schedule_outlined;
       case 'cancelled':
         return Icons.cancel_outlined;
+      case 'completion_requested':
+        return Icons.help_outline;
+      case 'payment_due':
+      case 'payment_initiated':
+      case 'payment_under_review':
+        return Icons.payment;
+      case 'completion_disputed':
+        return Icons.report_problem_outlined;
       case 'completed':
         return Icons.check_circle_outline;
       case 'reschedule_requested':
@@ -989,5 +1397,88 @@ class CustomerBookingDetailScreen extends StatelessWidget {
       default:
         return Icons.help_outline;
     }
+  }
+}
+
+class _BookingPaymentState {
+  const _BookingPaymentState({
+    required this.title,
+    required this.message,
+    required this.color,
+    required this.icon,
+  });
+
+  final String title;
+  final String message;
+  final Color color;
+  final IconData icon;
+
+  factory _BookingPaymentState.from(Map<String, dynamic> booking) {
+    final status = (booking['status'] ?? '').toString().toLowerCase();
+    final paymentStatus = (booking['paymentStatus'] ?? '')
+        .toString()
+        .toLowerCase();
+
+    if (status == 'completed' || status == 'paid' || paymentStatus == 'paid') {
+      return const _BookingPaymentState(
+        title: 'Payment completed',
+        message:
+            'This booking is paid and completed. You can leave or edit your review from this page.',
+        color: WorkableDesign.success,
+        icon: Icons.check_circle_outline,
+      );
+    }
+
+    if (paymentStatus == 'payment_rejected') {
+      final reason = booking['paymentRejectionReason']?.toString().trim();
+      return _BookingPaymentState(
+        title: 'Payment was rejected',
+        message: reason == null || reason.isEmpty
+            ? 'The previous payment report could not be approved. Please try payment again or choose cash.'
+            : 'The previous payment report could not be approved: $reason',
+        color: WorkableDesign.danger,
+        icon: Icons.error_outline,
+      );
+    }
+
+    if (paymentStatus == 'cash_pending_confirmation') {
+      return const _BookingPaymentState(
+        title: 'Cash confirmation pending',
+        message:
+            'You selected cash. The worker must confirm receiving cash before this booking is completed.',
+        color: WorkableDesign.warning,
+        icon: Icons.payments_outlined,
+      );
+    }
+
+    if (status == 'payment_under_review' ||
+        paymentStatus == 'customer_reported_paid' ||
+        paymentStatus == 'payment_under_review') {
+      return const _BookingPaymentState(
+        title: 'Payment under review',
+        message:
+            'Your UPI payment report is waiting for verification. Once approved, the booking becomes completed.',
+        color: WorkableDesign.primary,
+        icon: Icons.hourglass_top_outlined,
+      );
+    }
+
+    if (status == 'payment_initiated' || paymentStatus == 'initiated') {
+      return const _BookingPaymentState(
+        title: 'Payment started',
+        message:
+            'Payment was started but not confirmed yet. Continue payment if you still need to finish it.',
+        color: WorkableDesign.primary,
+        icon: Icons.payment_outlined,
+      );
+    }
+
+    return const _BookingPaymentState(
+      title: 'Payment is due',
+      message:
+          'The worker completion was confirmed. Choose UPI or cash to finish this booking.',
+      color: WorkableDesign.accent,
+      icon: Icons.account_balance_wallet_outlined,
+    );
   }
 }

@@ -2,12 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'add_new_address_screen.dart'; // Adjust path as needed
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
+import 'add_new_address_screen.dart';
 
 class AddressManagementScreen extends StatefulWidget {
   static const routeName = '/address-management';
 
-  const AddressManagementScreen({super.key});
+  final bool isSelectionMode;
+  final String? selectedAddressId;
+
+  const AddressManagementScreen({
+    super.key,
+    this.isSelectionMode = false,
+    this.selectedAddressId,
+  });
 
   @override
   State<AddressManagementScreen> createState() =>
@@ -32,6 +41,7 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
         .orderBy('createdAt', descending: true)
         .get();
 
+    if (!mounted) return;
     setState(() {
       addresses = snapshot.docs.map((doc) {
         final data = doc.data();
@@ -42,15 +52,61 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
   }
 
   Future<void> _editAddress(Map<String, dynamic> address) async {
-    print('Editing address: ${address['id']}'); // ✅ Check that ID exists
     // Navigate to AddNewAddressScreen with existing data
-    await Navigator.push(
+    final updatedAddress = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (_) => AddNewAddressScreen(isEdit: true, addressData: address),
       ),
     );
-    _loadAddresses(); // Refresh after edit
+
+    if (widget.isSelectionMode && updatedAddress != null && mounted) {
+      Navigator.pop(context, updatedAddress);
+      return;
+    }
+
+    if (!mounted) return;
+    _loadAddresses();
+  }
+
+  Future<void> _markAddressUsed(Map<String, dynamic> address) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final addressId = address['id'];
+
+    if (uid == null || addressId == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('addresses')
+        .doc(addressId)
+        .update({'lastUsed': 'Just now', 'lastUsedAt': Timestamp.now()});
+  }
+
+  Future<void> _selectAddress(Map<String, dynamic> address) async {
+    await _markAddressUsed(address);
+
+    if (!mounted) return;
+    Navigator.pop(context, {
+      ...address,
+      'lastUsed': 'Just now',
+      'lastUsedAt': Timestamp.now(),
+    });
+  }
+
+  Future<void> _bookServiceAtAddress(Map<String, dynamic> address) async {
+    await _markAddressUsed(address);
+
+    if (!mounted) return;
+
+    await Navigator.pushNamed(
+      context,
+      '/book-service',
+      arguments: {'selectedAddress': address},
+    );
+
+    if (!mounted) return;
+    _loadAddresses();
   }
 
   Future<void> _setAsDefault(String selectedId) async {
@@ -69,7 +125,8 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
     }
 
     await batch.commit();
-    _loadAddresses(); // Refresh after change
+    if (!mounted) return;
+    _loadAddresses();
   }
 
   Future<void> _deleteAddress(String addressId) async {
@@ -102,13 +159,37 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
           .doc(addressId)
           .delete();
 
-      _loadAddresses(); // Refresh list
+      if (!mounted) return;
+      _loadAddresses();
     }
   }
 
   int? activeMenu;
 
   List<Map<String, dynamic>> addresses = [];
+
+  Map<String, dynamic>? get recentlyUsedAddress {
+    if (addresses.isEmpty) return null;
+
+    final sorted = [...addresses];
+    sorted.sort((a, b) {
+      final aLastUsed = a['lastUsedAt'];
+      final bLastUsed = b['lastUsedAt'];
+      final aCreated = a['createdAt'];
+      final bCreated = b['createdAt'];
+      final aTime = aLastUsed is Timestamp ? aLastUsed : aCreated;
+      final bTime = bLastUsed is Timestamp ? bLastUsed : bCreated;
+
+      if (aTime is Timestamp && bTime is Timestamp) {
+        return bTime.compareTo(aTime);
+      }
+      if (aTime is Timestamp) return -1;
+      if (bTime is Timestamp) return 1;
+      return 0;
+    });
+
+    return sorted.first;
+  }
 
   IconData getTypeIcon(String type) {
     switch (type) {
@@ -148,11 +229,21 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
   }
 
   Widget buildAddressCard(Map<String, dynamic> address) {
+    final isSelected =
+        widget.isSelectionMode &&
+        widget.selectedAddressId != null &&
+        address['id']?.toString() == widget.selectedAddressId;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade100),
-        borderRadius: BorderRadius.circular(16),
+        color: isSelected
+            ? WorkableDesign.primary.withValues(alpha: 0.06)
+            : WorkableDesign.surface,
+        border: Border.all(
+          color: isSelected ? WorkableDesign.primary : WorkableDesign.border,
+          width: isSelected ? 1.5 : 1,
+        ),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -163,8 +254,11 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                backgroundColor: Colors.blue.shade50,
-                child: Icon(getTypeIcon(address['type']), color: Colors.blue),
+                backgroundColor: WorkableDesign.primary.withValues(alpha: 0.1),
+                child: Icon(
+                  getTypeIcon(address['type']),
+                  color: WorkableDesign.primary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -185,14 +279,16 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.blue.shade100,
+                              color: WorkableDesign.primary.withValues(
+                                alpha: 0.1,
+                              ),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: const Text(
                               'Default',
                               style: TextStyle(
                                 fontSize: 10,
-                                color: Colors.blue,
+                                color: WorkableDesign.primary,
                               ),
                             ),
                           ),
@@ -202,6 +298,25 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
                             LucideIcons.check,
                             color: Colors.green,
                             size: 16,
+                          ),
+                        if (isSelected) const SizedBox(width: 6),
+                        if (isSelected)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: WorkableDesign.primary,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Selected',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                       ],
                     ),
@@ -322,16 +437,32 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
             children: [
               Expanded(
                 child: TextButton.icon(
-                  icon: const Icon(LucideIcons.navigation, size: 16),
-                  label: const Text("Navigate"),
-                  onPressed: () {},
+                  icon: Icon(
+                    widget.isSelectionMode
+                        ? LucideIcons.checkCircle
+                        : LucideIcons.eye,
+                    size: 16,
+                  ),
+                  label: Text(
+                    widget.isSelectionMode ? "Use Address" : "View Details",
+                  ),
+                  onPressed: () => widget.isSelectionMode
+                      ? _selectAddress(address)
+                      : _editAddress(address),
                 ),
               ),
               Expanded(
                 child: TextButton.icon(
-                  icon: const Icon(LucideIcons.plus, size: 16),
-                  label: const Text("Book Service"),
-                  onPressed: () {},
+                  icon: Icon(
+                    widget.isSelectionMode
+                        ? LucideIcons.edit3
+                        : LucideIcons.plus,
+                    size: 16,
+                  ),
+                  label: Text(widget.isSelectionMode ? "Edit" : "Book Service"),
+                  onPressed: () => widget.isSelectionMode
+                      ? _editAddress(address)
+                      : _bookServiceAtAddress(address),
                 ),
               ),
             ],
@@ -343,12 +474,15 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final recentlyUsed = addresses.take(2).toList();
+    final recentAddress = recentlyUsedAddress;
+    final defaultCount = addresses.where((a) => a['isDefault'] == true).length;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
-        title: const Text('Address Management'),
+        title: Text(
+          widget.isSelectionMode ? 'Select Address' : 'Address Management',
+        ),
         leading: IconButton(
           icon: const Icon(LucideIcons.arrowLeft),
           onPressed: () => Navigator.pop(context),
@@ -357,16 +491,37 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          WorkablePageHeader(
+            title: widget.isSelectionMode
+                ? 'Choose service address'
+                : 'Saved addresses',
+            subtitle:
+                'Keep homes, offices, and family locations ready for faster bookings and help requests.',
+            icon: LucideIcons.mapPin,
+          ),
+          const SizedBox(height: 16),
+
           /// Quick Stats
           Row(
             children: [
-              _buildStatCard("Total", addresses.length.toString(), Colors.blue),
+              _buildStatCard(
+                "Total",
+                addresses.length.toString(),
+                WorkableDesign.primary,
+              ),
               _buildStatCard(
                 "Verified",
-                addresses.where((a) => a['isVerified']).length.toString(),
-                Colors.green,
+                addresses
+                    .where((a) => a['isVerified'] == true)
+                    .length
+                    .toString(),
+                WorkableDesign.success,
               ),
-              _buildStatCard("Default", "1", Colors.orange),
+              _buildStatCard(
+                "Default",
+                defaultCount.toString(),
+                WorkableDesign.warning,
+              ),
             ],
           ),
 
@@ -378,37 +533,60 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
             //   Navigator.pushNamed(context, AddNewAddressScreen.routeName);
             // },
             onPressed: () async {
-              await Navigator.pushNamed(context, AddNewAddressScreen.routeName);
+              final newAddress = await Navigator.push<Map<String, dynamic>>(
+                context,
+                MaterialPageRoute(builder: (_) => const AddNewAddressScreen()),
+              );
+
+              if (!context.mounted) return;
+
+              if (widget.isSelectionMode && newAddress != null) {
+                Navigator.pop(context, newAddress);
+                return;
+              }
+
               _loadAddresses(); // ⬅ reload Firestore addresses after returning
             },
 
             icon: const Icon(LucideIcons.plus),
             label: const Text("Add New Address"),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
           ),
 
           const SizedBox(height: 20),
-          const Text(
-            "Recently Used",
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          ),
-          const SizedBox(height: 12),
-          ...recentlyUsed.map(buildAddressCard),
+          if (addresses.isEmpty)
+            WorkableEmptyState(
+              icon: LucideIcons.mapPin,
+              title: 'No saved addresses',
+              message:
+                  'Add your home, office, or family address to book services faster.',
+            ),
+          if (addresses.isNotEmpty) ...[
+            const Text(
+              "Recently Used",
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (recentAddress != null) buildAddressCard(recentAddress),
 
-          const SizedBox(height: 20),
-          const Text(
-            "All Addresses",
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          ),
-          const SizedBox(height: 12),
-          ...addresses.map(buildAddressCard),
+            const SizedBox(height: 20),
+            const Text(
+              "All Addresses",
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...addresses.map(buildAddressCard),
+          ],
 
           const SizedBox(height: 24),
 
@@ -457,9 +635,9 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
         margin: const EdgeInsets.symmetric(horizontal: 4),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(12),
+          color: WorkableDesign.surface,
+          border: Border.all(color: WorkableDesign.border),
+          borderRadius: BorderRadius.circular(WorkableDesign.radius),
         ),
         child: Column(
           children: [
@@ -474,7 +652,7 @@ class _AddressManagementScreenState extends State<AddressManagementScreen> {
             const SizedBox(height: 4),
             Text(
               label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: const TextStyle(fontSize: 12, color: WorkableDesign.muted),
             ),
           ],
         ),

@@ -1,9 +1,12 @@
 import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
 
 class PhoneVerificationScreen extends StatefulWidget {
   static const routeName = '/phone-verification';
@@ -16,262 +19,278 @@ class PhoneVerificationScreen extends StatefulWidget {
 }
 
 class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
-  String step = 'enter'; // enter, verify, success
-  String phoneNumber = '';
-  List<String> otp = List.filled(6, '');
-  int timer = 30;
-  bool canResend = false;
-  String verificationMethod = 'sms'; // sms or call
-  int attempts = 0;
-  String error = '';
-  bool isLoading = false;
-  Timer? countdownTimer;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final TextEditingController _phoneController = TextEditingController();
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
 
+  String _step = 'enter';
+  String _phoneNumber = '';
   String _verificationId = '';
-  FirebaseAuth auth = FirebaseAuth.instance;
-  final currentUser = FirebaseAuth.instance.currentUser;
+  int _timer = 30;
+  int _attempts = 0;
+  bool _canResend = false;
+  bool _isLoading = false;
+  String _error = '';
+  Timer? _countdownTimer;
 
   @override
   void dispose() {
-    countdownTimer?.cancel();
+    _countdownTimer?.cancel();
+    _phoneController.dispose();
+    for (final controller in _otpControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
-  void startTimer() {
+  void _startTimer() {
+    _countdownTimer?.cancel();
     setState(() {
-      timer = 30;
-      canResend = false;
+      _timer = 30;
+      _canResend = false;
     });
-    countdownTimer?.cancel();
-    countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (timer > 1) {
-        setState(() => timer--);
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_timer > 1) {
+        setState(() => _timer--);
       } else {
         setState(() {
-          timer = 0;
-          canResend = true;
+          _timer = 0;
+          _canResend = true;
         });
-        countdownTimer?.cancel();
+        timer.cancel();
       }
     });
   }
 
-  // void handlePhoneSubmit() {
-  //   if (phoneNumber.length == 10) {
-  //     setState(() {
-  //       isLoading = true;
-  //       error = '';
-  //     });
-  //     Future.delayed(const Duration(seconds: 2), () {
-  //       setState(() {
-  //         isLoading = false;
-  //         step = 'verify';
-  //         otp = List.filled(6, '');
-  //         startTimer();
-  //       });
-  //     });
-  //   } else {
-  //     setState(() {
-  //       error = 'Please enter a valid 10-digit phone number';
-  //     });
-  //   }
-  // }
-
-  void handlePhoneSubmit() async {
-    if (phoneNumber.length == 10) {
-      setState(() {
-        isLoading = true;
-        error = '';
-      });
-
-      try {
-        await auth.verifyPhoneNumber(
-          phoneNumber: '+91$phoneNumber',
-          timeout: const Duration(seconds: 60),
-          verificationCompleted: (PhoneAuthCredential credential) async {
-            // Auto-retrieval or instant verification
-            await auth.signInWithCredential(credential);
-            onVerificationSuccess();
-          },
-          verificationFailed: (FirebaseAuthException e) {
-            setState(() {
-              isLoading = false;
-              error = e.message ?? 'Verification failed';
-            });
-          },
-          codeSent: (String verificationId, int? resendToken) {
-            setState(() {
-              isLoading = false;
-              step = 'verify';
-              _verificationId = verificationId;
-              startTimer();
-            });
-          },
-          codeAutoRetrievalTimeout: (String verificationId) {
-            _verificationId = verificationId;
-          },
-        );
-      } catch (e) {
-        setState(() {
-          isLoading = false;
-          error = 'Something went wrong: $e';
-        });
-      }
-    } else {
-      setState(() {
-        error = 'Please enter a valid 10-digit phone number';
-      });
-    }
-  }
-
-  void handleOtpChange(int index, String value) {
-    if (value.length == 1 && RegExp(r'\d').hasMatch(value)) {
-      setState(() {
-        otp[index] = value;
-      });
-
-      if (index < 5) FocusScope.of(context).nextFocus();
-
-      if (otp.every((d) => d.isNotEmpty)) {
-        handleOtpVerify(otp.join());
-      }
-    }
-  }
-
-  // void handleOtpVerify(String enteredOtp) {
-  //   setState(() {
-  //     isLoading = true;
-  //     error = '';
-  //   });
-  //   Future.delayed(const Duration(seconds: 2), () {
-  //     setState(() {
-  //       isLoading = false;
-  //       if (enteredOtp == '123456') {
-  //         step = 'success';
-  //       } else {
-  //         attempts++;
-  //         error = attempts >= 3
-  //             ? 'Too many failed attempts. Please try again later.'
-  //             : 'Invalid OTP. Please try again.';
-  //         otp = List.filled(6, '');
-  //       }
-  //     });
-  //   });
-  // }
-
-  Future<void> onVerificationSuccess() async {
-    final uid = currentUser?.uid;
-
-    if (uid != null) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('identityVerification')
-          .doc('phone')
-          .set({
-            'status': 'verified',
-            'verifiedAt': Timestamp.now(),
-            'phone': '+91$phoneNumber',
-          });
+  Future<void> _sendOtp({bool isResend = false}) async {
+    final digitsOnly = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    if (digitsOnly.length != 10) {
+      setState(() => _error = 'Enter a valid 10-digit mobile number.');
+      return;
     }
 
     setState(() {
-      step = 'success';
-      isLoading = false;
-    });
-  }
-
-  void handleOtpVerify(String enteredOtp) async {
-    setState(() {
-      isLoading = true;
-      error = '';
+      _isLoading = true;
+      _error = '';
+      _phoneNumber = digitsOnly;
+      if (isResend) {
+        for (final controller in _otpControllers) {
+          controller.clear();
+        }
+      }
     });
 
     try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: _verificationId,
-        smsCode: enteredOtp,
+      await _auth.verifyPhoneNumber(
+        phoneNumber: '+91$digitsOnly',
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: _authenticateWithCredential,
+        verificationFailed: (FirebaseAuthException e) {
+          if (!mounted) return;
+          setState(() {
+            _isLoading = false;
+            _error = e.message ?? 'Phone verification failed.';
+          });
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) return;
+          setState(() {
+            _isLoading = false;
+            _step = 'verify';
+            _verificationId = verificationId;
+          });
+          _startTimer();
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          _verificationId = verificationId;
+        },
       );
-
-      await auth.signInWithCredential(credential);
-      await onVerificationSuccess();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        isLoading = false;
-        attempts++;
-        error = attempts >= 3
-            ? 'Too many failed attempts. Please try again later.'
-            : 'Invalid OTP. Please try again.';
-        otp = List.filled(6, '');
+        _isLoading = false;
+        _error = 'Could not send OTP. Please try again.';
       });
     }
   }
 
-  void handleResendOtp() {
-    setState(() {
-      isLoading = true;
-      error = '';
-      otp = List.filled(6, '');
-    });
-    Future.delayed(const Duration(seconds: 2), () {
+  Future<void> _authenticateWithCredential(
+    PhoneAuthCredential credential,
+  ) async {
+    try {
+      final currentUser = _auth.currentUser;
+
+      if (currentUser != null) {
+        await currentUser.updatePhoneNumber(credential);
+      } else {
+        await _auth.signInWithCredential(credential);
+      }
+
+      await _markPhoneVerified();
+
+      if (!mounted) return;
       setState(() {
-        isLoading = false;
-        startTimer();
+        _step = 'success';
+        _isLoading = false;
+        _error = '';
       });
-    });
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _attempts++;
+        _error = _firebasePhoneError(e);
+        _clearOtp();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = 'Phone verification failed. Please try again.';
+        _clearOtp();
+      });
+    }
   }
 
-  String formatTimer(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '${m}:${s.toString().padLeft(2, '0')}';
+  Future<void> _markPhoneVerified() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+
+    final phone = '+91$_phoneNumber';
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('identityVerification')
+        .doc('phone')
+        .set({
+          'status': 'verified',
+          'phone': phone,
+          'verifiedAt': Timestamp.now(),
+          'updatedAt': Timestamp.now(),
+        }, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'phoneNumber': phone,
+      'phoneVerified': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  String _firebasePhoneError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-verification-code':
+        return 'Invalid OTP. Please check the code and try again.';
+      case 'session-expired':
+        return 'OTP expired. Please request a new code.';
+      case 'credential-already-in-use':
+        return 'This phone number is already linked to another account.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait before trying again.';
+      default:
+        return e.message ?? 'Phone verification failed.';
+    }
+  }
+
+  void _clearOtp() {
+    for (final controller in _otpControllers) {
+      controller.clear();
+    }
+  }
+
+  void _handleOtpChange(int index, String value) {
+    final digit = value.replaceAll(RegExp(r'\D'), '');
+    if (digit != value) {
+      _otpControllers[index].text = digit;
+      _otpControllers[index].selection = TextSelection.collapsed(
+        offset: digit.length,
+      );
+    }
+
+    if (digit.isNotEmpty && index < 5) {
+      FocusScope.of(context).nextFocus();
+    }
+
+    final code = _otpControllers.map((controller) => controller.text).join();
+    if (code.length == 6 && !_isLoading) {
+      _verifyOtp(code);
+    }
+  }
+
+  Future<void> _verifyOtp(String code) async {
+    if (_verificationId.isEmpty) {
+      setState(() => _error = 'OTP session expired. Please resend the code.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = '';
+    });
+
+    final credential = PhoneAuthProvider.credential(
+      verificationId: _verificationId,
+      smsCode: code,
+    );
+    await _authenticateWithCredential(credential);
+  }
+
+  String _formatTimer(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text('Phone Verification'),
         leading: IconButton(
           icon: const Icon(LucideIcons.arrowLeft),
           onPressed: () {
-            if (step == 'enter') {
+            if (_step == 'enter') {
               Navigator.pop(context);
             } else {
-              setState(() => step = 'enter');
+              setState(() => _step = 'enter');
             }
           },
         ),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: Icon(LucideIcons.helpCircle, color: Colors.grey),
-          ),
-        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildStepIndicator(),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(WorkableDesign.pagePadding),
+          child: Column(
+            children: [
+              const WorkablePageHeader(
+                title: 'Secure phone access',
+                subtitle:
+                    'Verify your mobile number so booking calls, alerts, and account recovery stay trusted.',
+                icon: LucideIcons.phone,
               ),
-              child: step == 'enter'
-                  ? _buildEnterPhone()
-                  : step == 'verify'
-                  ? _buildVerifyOtp()
-                  : _buildSuccess(),
-            ),
-            const SizedBox(height: 16),
-            _buildSupportCard(),
-          ],
+              const SizedBox(height: 16),
+              _buildStepIndicator(),
+              const SizedBox(height: 16),
+              WorkableSectionCard(
+                child: _step == 'enter'
+                    ? _buildEnterPhone()
+                    : _step == 'verify'
+                    ? _buildVerifyOtp()
+                    : _buildSuccess(),
+              ),
+              const SizedBox(height: 16),
+              _buildSupportCard(),
+            ],
+          ),
         ),
       ),
     );
@@ -279,40 +298,64 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
 
   Widget _buildStepIndicator() {
     final steps = ['enter', 'verify', 'success'];
-    final labels = ['Enter Phone', 'Verify OTP', 'Complete'];
-    final currentIndex = steps.indexOf(step);
+    final labels = ['Phone', 'OTP', 'Done'];
+    final currentIndex = steps.indexOf(_step);
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (index) {
-        final isCompleted = index < currentIndex;
-        final isActive = index == currentIndex;
+    return WorkableSectionCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: List.generate(3, (index) {
+          final isCompleted = index < currentIndex;
+          final isActive = index == currentIndex;
+          final color = isCompleted || isActive
+              ? WorkableDesign.primary
+              : WorkableDesign.border;
 
-        return Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: isCompleted || isActive
-                  ? Colors.blue
-                  : Colors.grey.shade300,
-              child: isCompleted
-                  ? const Icon(LucideIcons.check, size: 16, color: Colors.white)
-                  : Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        color: isActive ? Colors.white : Colors.grey.shade700,
-                      ),
+          return Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Center(
+                    child: isCompleted
+                        ? const Icon(
+                            LucideIcons.check,
+                            size: 15,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: isActive
+                                  ? Colors.white
+                                  : WorkableDesign.muted,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    labels[index],
+                    style: TextStyle(
+                      color: isActive || isCompleted
+                          ? WorkableDesign.ink
+                          : WorkableDesign.muted,
+                      fontWeight: FontWeight.w700,
                     ),
+                  ),
+                ),
+              ],
             ),
-            if (index < 2)
-              Container(
-                width: 24,
-                height: 2,
-                color: isCompleted ? Colors.blue : Colors.grey.shade300,
-              ),
-          ],
-        );
-      }),
+          );
+        }),
+      ),
     );
   }
 
@@ -320,192 +363,61 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Center(
-          child: Column(
-            children: [
-              const CircleAvatar(
-                radius: 32,
-                backgroundColor: Color(0xFFEFF6FF),
-                child: Icon(LucideIcons.phone, color: Colors.blue, size: 28),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Verify Your Phone Number',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                "We'll send you a code to confirm your number",
-                style: TextStyle(color: Colors.grey),
-              ),
-            ],
-          ),
+        _buildIconTitle(
+          icon: LucideIcons.smartphone,
+          title: 'Verify your mobile number',
+          subtitle: 'We will send a real Firebase SMS OTP to this number.',
         ),
         const SizedBox(height: 20),
         const Text(
-          'Phone Number',
-          style: TextStyle(fontWeight: FontWeight.w500),
+          'Mobile number',
+          style: TextStyle(
+            color: WorkableDesign.ink,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         TextField(
+          controller: _phoneController,
           keyboardType: TextInputType.phone,
           maxLength: 10,
-          decoration: InputDecoration(
-            prefixIcon: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10),
-              child: Text('🇮🇳 +91', style: TextStyle(fontSize: 16)),
-            ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          decoration: const InputDecoration(
+            prefixText: '+91 ',
             hintText: 'Enter 10-digit mobile number',
             counterText: '',
           ),
-          onChanged: (value) {
-            final digitsOnly = value.replaceAll(RegExp(r'\D'), '');
-            if (digitsOnly.length <= 10) {
-              setState(() {
-                phoneNumber = digitsOnly;
-                error = '';
-              });
-            }
-          },
+          onChanged: (_) => setState(() => _error = ''),
         ),
-        if (error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Row(
-              children: [
-                const Icon(
-                  LucideIcons.alertCircle,
-                  color: Colors.red,
-                  size: 16,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  error,
-                  style: const TextStyle(color: Colors.red, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
+        if (_error.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildErrorText(_error),
+        ],
         const SizedBox(height: 16),
-        _buildWhyWeNeedCard(),
-        const SizedBox(height: 16),
-        const Text(
-          'Verification Method:',
-          style: TextStyle(fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _buildMethodButton(
-                'sms',
-                LucideIcons.messageSquare,
-                'SMS',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildMethodButton('call', LucideIcons.phoneCall, 'Call'),
-            ),
+        _buildInfoCard(
+          icon: LucideIcons.info,
+          title: 'Why this matters',
+          points: const [
+            'Workers and customers can coordinate safely.',
+            'You receive critical booking and payment updates.',
+            'Your account recovery becomes more secure.',
           ],
         ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: phoneNumber.length == 10 && !isLoading
-              ? handlePhoneSubmit
-              : null,
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
-            backgroundColor: Colors.blue,
-          ),
-          child: isLoading
-              ? const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text("Sending Code..."),
-                  ],
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          onPressed: _isLoading ? null : () => _sendOtp(),
+          icon: _isLoading
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
                 )
-              : const Text('Send Verification Code'),
+              : const Icon(LucideIcons.send),
+          label: Text(_isLoading ? 'Sending OTP...' : 'Send SMS OTP'),
         ),
       ],
-    );
-  }
-
-  Widget _buildMethodButton(String method, IconData icon, String label) {
-    final isSelected = verificationMethod == method;
-    return GestureDetector(
-      onTap: () => setState(() => verificationMethod = method),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: isSelected ? Colors.blue : Colors.grey.shade300,
-            width: 2,
-          ),
-          color: isSelected ? Colors.blue.shade50 : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.blue : Colors.grey.shade700,
-              size: 18,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: isSelected ? Colors.blue : Colors.grey.shade800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWhyWeNeedCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(LucideIcons.info, color: Colors.blue, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Why we need your phone number:',
-                  style: TextStyle(fontWeight: FontWeight.w500),
-                ),
-                SizedBox(height: 4),
-                Text('• Direct communication with service providers'),
-                Text('• Account security and verification'),
-                Text('• Important booking updates and alerts'),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -513,69 +425,51 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const CircleAvatar(
-          radius: 32,
-          backgroundColor: Color(0xFFEFFDF5),
-          child: Icon(LucideIcons.messageSquare, color: Colors.green, size: 28),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Enter Verification Code',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Code sent to +91 $phoneNumber',
-          style: const TextStyle(color: Colors.grey),
+        _buildIconTitle(
+          icon: LucideIcons.messageSquare,
+          title: 'Enter OTP',
+          subtitle: 'Code sent to +91 $_phoneNumber',
         ),
         TextButton(
-          onPressed: () => setState(() => step = 'enter'),
-          child: const Text('Edit Phone'),
+          onPressed: _isLoading ? null : () => setState(() => _step = 'enter'),
+          child: const Text('Edit phone number'),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: List.generate(6, (index) {
             return SizedBox(
-              width: 45,
+              width: 44,
               child: TextField(
+                controller: _otpControllers[index],
                 maxLength: 1,
+                enabled: !_isLoading,
                 textAlign: TextAlign.center,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(counterText: ''),
-                onChanged: (val) => handleOtpChange(index, val),
+                onChanged: (value) => _handleOtpChange(index, value),
               ),
             );
           }),
         ),
-        if (error.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(error, style: const TextStyle(color: Colors.red)),
-          ),
-        const SizedBox(height: 12),
-        if (!canResend)
+        if (_error.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _buildErrorText(_attempts >= 3 ? '$_error Try again later.' : _error),
+        ],
+        const SizedBox(height: 16),
+        if (_isLoading)
+          const CircularProgressIndicator()
+        else if (_canResend)
+          TextButton.icon(
+            onPressed: () => _sendOtp(isResend: true),
+            icon: const Icon(LucideIcons.refreshCw),
+            label: const Text('Resend OTP'),
+          )
+        else
           Text(
-            "Resend code in ${formatTimer(timer)}",
-            style: const TextStyle(color: Colors.grey),
+            'Resend OTP in ${_formatTimer(_timer)}',
+            style: const TextStyle(color: WorkableDesign.muted),
           ),
-        if (canResend)
-          TextButton(
-            onPressed: isLoading ? null : handleResendOtp,
-            child: const Text('Resend Code'),
-          ),
-        TextButton(
-          onPressed: () {
-            setState(() {
-              verificationMethod = verificationMethod == 'sms' ? 'call' : 'sms';
-            });
-          },
-          child: Text(
-            verificationMethod == 'sms'
-                ? 'Use Call instead'
-                : 'Use SMS instead',
-          ),
-        ),
       ],
     );
   }
@@ -583,83 +477,137 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   Widget _buildSuccess() {
     return Column(
       children: [
-        const CircleAvatar(
-          radius: 36,
-          backgroundColor: Color(0xFFEFFDF5),
-          child: Icon(LucideIcons.check, color: Colors.green, size: 32),
+        _buildIconTitle(
+          icon: LucideIcons.checkCircle,
+          title: 'Phone verified',
+          subtitle: '+91 $_phoneNumber is now linked to your account.',
+          color: WorkableDesign.success,
         ),
-        const SizedBox(height: 12),
-        const Text(
-          'Phone Verified Successfully!',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        const SizedBox(height: 18),
+        _buildInfoCard(
+          icon: LucideIcons.shieldCheck,
+          title: 'Account trust improved',
+          points: const [
+            'Booking coordination is easier.',
+            'Important payment alerts can reach you.',
+            'Your verification profile is stronger.',
+          ],
+          color: WorkableDesign.success,
         ),
-        const SizedBox(height: 4),
-        Text('Your phone number +91 $phoneNumber has been verified'),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Back to Verification'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIconTitle({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Color color = WorkableDesign.primary,
+  }) {
+    return Column(
+      children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          width: 58,
+          height: 58,
           decoration: BoxDecoration(
-            color: Colors.green.shade50,
-            borderRadius: BorderRadius.circular(12),
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+          child: Icon(icon, color: color, size: 30),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: WorkableDesign.ink,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: WorkableDesign.muted, height: 1.35),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required String title,
+    required List<String> points,
+    Color color = WorkableDesign.primary,
+  }) {
+    return Container(
+      decoration: WorkableDesign.cardDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderColor: color.withValues(alpha: 0.18),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
               Text(
-                'What\'s next?',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                title,
+                style: TextStyle(color: color, fontWeight: FontWeight.w800),
               ),
-              SizedBox(height: 6),
-              Text('• Receive booking notifications'),
-              Text('• Talk to workers directly'),
-              Text('• Enhanced account security'),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          //onPressed: () => Navigator.pop(context),
-          onPressed: () => Navigator.pop(context, true),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(48),
+          const SizedBox(height: 10),
+          ...points.map(
+            (point) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: WorkableInfoRow(icon: LucideIcons.check, text: point),
+            ),
           ),
-          child: const Text('Continue to Identity Verification'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorText(String message) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(LucideIcons.alertCircle, color: WorkableDesign.danger),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(
+              color: WorkableDesign.danger,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ],
     );
   }
 
   Widget _buildSupportCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
+    return const WorkableSectionCard(
       child: Row(
-        children: const [
-          CircleAvatar(
-            backgroundColor: Color(0xFFE0F2FE),
-            child: Icon(LucideIcons.helpCircle, color: Colors.blue),
-          ),
+        children: [
+          Icon(LucideIcons.helpCircle, color: WorkableDesign.primary),
           SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Need Help?',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  'Contact support for verification issues',
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-              ],
+            child: Text(
+              'If OTP delivery fails repeatedly, wait a few minutes and try again from an active mobile network.',
+              style: TextStyle(color: WorkableDesign.muted, height: 1.35),
             ),
           ),
-          Icon(LucideIcons.chevronRight, color: Colors.grey),
         ],
       ),
     );

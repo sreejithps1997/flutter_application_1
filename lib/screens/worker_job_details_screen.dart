@@ -1,8 +1,13 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../widgets/custom_button.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+
+import '../core/theme/workable_design.dart';
+import '../features/bookings/data/booking_action_repository.dart';
+import '../services/payment_reconciliation_service.dart';
 import '../services/verification_tier_manager.dart';
+import '../widgets/workable_ui.dart';
 
 class WorkerJobDetailsScreen extends StatefulWidget {
   static const routeName = '/worker-job-details';
@@ -17,6 +22,7 @@ class WorkerJobDetailsScreen extends StatefulWidget {
 
 class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
   bool hasVerified = true;
+  bool _isActing = false;
 
   @override
   void initState() {
@@ -32,176 +38,441 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
       uid,
     );
 
+    if (!mounted) return;
     setState(() => hasVerified = verified);
+  }
+
+  Future<void> _runBookingAction(
+    Future<void> Function(BookingActionRepository actions) action, {
+    required String successMessage,
+    String? failureMessage,
+  }) async {
+    if (_isActing) return;
+    setState(() => _isActing = true);
+
+    try {
+      await action(BookingActionRepository());
+
+      if (!mounted) return;
+      _showSnack(successMessage);
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack(failureMessage ?? 'Unable to update job.', isError: true);
+    } finally {
+      if (mounted) setState(() => _isActing = false);
+    }
+  }
+
+  Future<void> _acceptJob() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final verified = await VerificationTierManager().hasUploadedPanAndAadhaar(
+      uid,
+    );
+    if (!verified) {
+      if (!mounted) return;
+      _showUploadPanAadhaarDialog(context);
+      return;
+    }
+
+    await _runBookingAction(
+      (actions) => actions.acceptBooking(widget.bookingId),
+      successMessage: 'Job accepted.',
+      failureMessage: 'Unable to accept job.',
+    );
+  }
+
+  Future<void> _declineJob() async {
+    await _runBookingAction(
+      (actions) => actions.declineBooking(widget.bookingId),
+      successMessage: 'Job declined.',
+      failureMessage: 'Unable to decline job.',
+    );
+  }
+
+  Future<void> _requestCompletion() async {
+    await _runBookingAction(
+      (actions) => actions.requestCompletion(widget.bookingId),
+      successMessage: 'Completion request sent to the customer.',
+      failureMessage: 'Unable to request completion.',
+    );
+  }
+
+  Future<void> _confirmCashReceived() async {
+    if (_isActing) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    setState(() => _isActing = true);
+    try {
+      await PaymentReconciliationService().approvePayment(
+        bookingId: widget.bookingId,
+        reviewedBy: uid,
+        reviewerRole: 'worker',
+        note: 'Worker confirmed cash received.',
+      );
+
+      if (!mounted) return;
+      _showSnack('Cash payment confirmed.');
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Unable to confirm cash payment.', isError: true);
+    } finally {
+      if (mounted) setState(() => _isActing = false);
+    }
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError
+            ? WorkableDesign.danger
+            : WorkableDesign.success,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Job Details"),
-        backgroundColor: Colors.deepPurple,
-      ),
-      body: FutureBuilder<DocumentSnapshot>(
-        future: FirebaseFirestore.instance
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(title: const Text('Job Details')),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
             .collection('bookings')
             .doc(widget.bookingId)
-            .get(),
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            return WorkableEmptyState(
+              icon: LucideIcons.alertTriangle,
+              title: 'Unable to load job',
+              message: snapshot.error.toString(),
+            );
+          }
           if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("Job not found."));
+            return const WorkableEmptyState(
+              icon: LucideIcons.briefcase,
+              title: 'Job not found',
+              message: 'This booking may have been removed or reassigned.',
+            );
           }
 
-          final job = snapshot.data!.data() as Map<String, dynamic>;
-          final String status = job['status'] ?? 'pending';
-
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _detailRow("Service", job['service']),
-                _detailRow(
-                  "Customer",
-                  hasVerified ? job['customerName'] : 'Restricted',
-                ),
-                _detailRow(
-                  "Phone",
-                  hasVerified ? job['customerPhone'] : 'Restricted',
-                ),
-                _detailRow("Address", job['address']),
-                _detailRow("Issue", job['issueDescription']),
-                _detailRow("Date", job['preferredDate']),
-                _detailRow("Time", job['preferredTime']),
-                _detailRow("Payment", job['paymentMethod']),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    const Text(
-                      "Status: ",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Chip(
-                      label: Text(
-                        status,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      backgroundColor: _statusColor(status),
-                    ),
-                  ],
-                ),
-
-                const Spacer(),
-
-                if (status == "confirmed") ...[
-                  CustomButton(
-                    text: "Mark as Completed",
-                    backgroundColor: Colors.green,
-                    onPressed: () {
-                      FirebaseFirestore.instance
-                          .collection('bookings')
-                          .doc(widget.bookingId)
-                          .update({'status': 'completed'});
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("Job marked as completed"),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  CustomButton(
-                    text: "Cancel Job",
-                    backgroundColor: Colors.red,
-                    onPressed: () {
-                      FirebaseFirestore.instance
-                          .collection('bookings')
-                          .doc(widget.bookingId)
-                          .update({'status': 'cancelled'});
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Job cancelled")),
-                      );
-                    },
-                  ),
-                ] else if (status == "pending") ...[
-                  CustomButton(
-                    text: "Accept Job",
-                    backgroundColor: Colors.green,
-                    onPressed: () async {
-                      final uid = FirebaseAuth.instance.currentUser?.uid;
-                      if (uid == null) return;
-
-                      final hasVerified = await VerificationTierManager()
-                          .hasUploadedPanAndAadhaar(uid);
-                      if (!hasVerified) {
-                        _showUploadPanAadhaarDialog(context);
-                        return;
-                      }
-
-                      await FirebaseFirestore.instance
-                          .collection('bookings')
-                          .doc(widget.bookingId)
-                          .update({'status': 'confirmed'});
-
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Job accepted")),
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  CustomButton(
-                    text: "Decline Job",
-                    backgroundColor: Colors.grey,
-                    onPressed: () {
-                      FirebaseFirestore.instance
-                          .collection('bookings')
-                          .doc(widget.bookingId)
-                          .update({'status': 'cancelled'});
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Job declined")),
-                      );
-                    },
-                  ),
-                ],
-              ],
-            ),
-          );
+          final job = snapshot.data!.data() ?? {};
+          return _buildDetails(job);
         },
       ),
     );
   }
 
-  Widget _detailRow(String label, String? value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildDetails(Map<String, dynamic> job) {
+    final status = _value(job, ['status']) ?? 'pending';
+    final paymentStatus = _value(job, ['paymentStatus']) ?? 'not_started';
+    final paymentMethod = _value(job, ['paymentMethod', 'payment']) ?? '-';
+    final isCashPending =
+        paymentStatus == 'cash_pending_confirmation' ||
+        (paymentMethod.toLowerCase().contains('cash') &&
+            status == 'payment_under_review');
+
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(WorkableDesign.pagePadding),
         children: [
-          Text("$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(child: Text(value ?? '-')),
+          WorkablePageHeader(
+            title: _value(job, ['service', 'serviceType']) ?? 'Assigned job',
+            subtitle:
+                'Review customer details, job status, payment state, and next action.',
+            icon: LucideIcons.briefcase,
+            trailing: WorkableStatusPill(
+              label: _statusLabel(status),
+              color: _statusColor(status),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildStatusCard(status, paymentStatus, paymentMethod),
+          const SizedBox(height: 16),
+          _buildCustomerCard(job),
+          const SizedBox(height: 16),
+          _buildJobCard(job),
+          const SizedBox(height: 16),
+          if (!hasVerified) _buildRestrictedCard(),
+          if (!hasVerified) const SizedBox(height: 16),
+          _buildActionCard(status, isCashPending),
         ],
       ),
     );
   }
 
+  Widget _buildStatusCard(
+    String status,
+    String paymentStatus,
+    String paymentMethod,
+  ) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Current status'),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              WorkableStatusPill(
+                label: _statusLabel(status),
+                color: _statusColor(status),
+                icon: LucideIcons.activity,
+              ),
+              WorkableStatusPill(
+                label: _paymentLabel(paymentStatus),
+                color: _paymentColor(paymentStatus),
+                icon: LucideIcons.wallet,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          WorkableInfoRow(
+            icon: LucideIcons.creditCard,
+            text: 'Payment method: $paymentMethod',
+          ),
+          const SizedBox(height: 8),
+          WorkableInfoRow(
+            icon: LucideIcons.hash,
+            text: 'Job ID: ${widget.bookingId}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerCard(Map<String, dynamic> job) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Customer'),
+          const SizedBox(height: 12),
+          _DetailRow(
+            icon: LucideIcons.user,
+            label: 'Name',
+            value: hasVerified
+                ? _value(job, ['customerName', 'name']) ?? '-'
+                : 'Restricted until verification',
+          ),
+          _DetailRow(
+            icon: LucideIcons.phone,
+            label: 'Phone',
+            value: hasVerified
+                ? _value(job, ['customerPhone', 'phone', 'phoneNumber']) ?? '-'
+                : 'Restricted until verification',
+          ),
+          _DetailRow(
+            icon: LucideIcons.mapPin,
+            label: 'Address',
+            value: hasVerified
+                ? _value(job, ['address']) ?? '-'
+                : 'Restricted until verification',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobCard(Map<String, dynamic> job) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Job information'),
+          const SizedBox(height: 12),
+          _DetailRow(
+            icon: LucideIcons.wrench,
+            label: 'Service',
+            value: _value(job, ['service', 'serviceType']) ?? '-',
+          ),
+          _DetailRow(
+            icon: LucideIcons.fileText,
+            label: 'Issue',
+            value: _value(job, ['issueDescription', 'issue']) ?? '-',
+          ),
+          _DetailRow(
+            icon: LucideIcons.calendar,
+            label: 'Date',
+            value: _value(job, ['preferredDate']) ?? '-',
+          ),
+          _DetailRow(
+            icon: LucideIcons.clock,
+            label: 'Time',
+            value: _value(job, ['preferredTime']) ?? '-',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRestrictedCard() {
+    return WorkableSectionCard(
+      color: WorkableDesign.warning.withValues(alpha: 0.08),
+      borderColor: WorkableDesign.warning.withValues(alpha: 0.24),
+      child: const WorkableInfoRow(
+        icon: LucideIcons.shieldAlert,
+        text:
+            'Customer contact details stay restricted until PAN and Aadhaar upload requirements are completed.',
+      ),
+    );
+  }
+
+  Widget _buildActionCard(String status, bool isCashPending) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Next action'),
+          const SizedBox(height: 12),
+          if (isCashPending) ...[
+            const WorkableInfoRow(
+              icon: LucideIcons.banknote,
+              text:
+                  'Confirm cash only after the customer has paid you directly.',
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isActing ? null : _confirmCashReceived,
+                icon: const Icon(LucideIcons.checkCircle),
+                label: Text(
+                  _isActing ? 'Updating...' : 'Confirm Cash Received',
+                ),
+              ),
+            ),
+          ] else if (status == 'confirmed' || status == 'in_progress') ...[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isActing ? null : _requestCompletion,
+                icon: const Icon(LucideIcons.checkCircle),
+                label: Text(_isActing ? 'Sending...' : 'Request Completion'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isActing ? null : _declineJob,
+                icon: const Icon(LucideIcons.xCircle),
+                label: const Text('Cancel Job'),
+              ),
+            ),
+          ] else if (status == 'pending') ...[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isActing ? null : _acceptJob,
+                icon: const Icon(LucideIcons.checkCircle),
+                label: Text(_isActing ? 'Accepting...' : 'Accept Job'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isActing ? null : _declineJob,
+                icon: const Icon(LucideIcons.xCircle),
+                label: const Text('Decline Job'),
+              ),
+            ),
+          ] else if (status == 'completion_requested') ...[
+            const WorkableInfoRow(
+              icon: LucideIcons.hourglass,
+              text:
+                  'Waiting for the customer to confirm the completed work. Payment starts after confirmation.',
+            ),
+          ] else if (status == 'completed' || status == 'paid') ...[
+            const WorkableInfoRow(
+              icon: LucideIcons.checkCircle,
+              text: 'This job is completed. It will remain visible in history.',
+            ),
+          ] else ...[
+            WorkableInfoRow(
+              icon: LucideIcons.info,
+              text:
+                  'No worker action is available for ${_statusLabel(status)}.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String? _value(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  String _statusLabel(String status) {
+    return status
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
+
+  String _paymentLabel(String status) {
+    if (status.trim().isEmpty) return 'Payment Not Started';
+    return _statusLabel(status);
+  }
+
   Color _statusColor(String status) {
     switch (status.toLowerCase()) {
       case 'confirmed':
-        return Colors.green;
+      case 'accepted':
+        return WorkableDesign.accent;
       case 'pending':
-        return Colors.orange;
+        return WorkableDesign.warning;
+      case 'completion_requested':
+        return WorkableDesign.warning;
+      case 'payment_due':
+      case 'payment_initiated':
+      case 'payment_under_review':
+        return WorkableDesign.primary;
       case 'cancelled':
-        return Colors.red;
+      case 'rejected':
+        return WorkableDesign.danger;
       case 'completed':
-        return Colors.blueGrey;
+      case 'paid':
+        return WorkableDesign.success;
       default:
-        return Colors.grey;
+        return WorkableDesign.muted;
+    }
+  }
+
+  Color _paymentColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'paid':
+      case 'completed':
+        return WorkableDesign.success;
+      case 'cash_pending_confirmation':
+      case 'payment_under_review':
+      case 'customer_reported_paid':
+        return WorkableDesign.warning;
+      case 'rejected':
+        return WorkableDesign.danger;
+      case 'not_started':
+      default:
+        return WorkableDesign.primary;
     }
   }
 
@@ -209,21 +480,85 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Verification Required"),
+        title: const Text('Verification Required'),
         content: const Text(
-          "To accept a job, you must first upload and verify your PAN card and Aadhaar card.",
+          'To accept a job, upload your PAN card and Aadhaar card first.',
         ),
         actions: [
           TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
             onPressed: () {
               Navigator.pop(context);
               Navigator.pushNamed(context, '/identity-verification');
             },
-            child: const Text("Go to Verification"),
+            child: const Text('Go to Verification'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        color: WorkableDesign.ink,
+        fontSize: 16,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: WorkableDesign.primary),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 82,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: WorkableDesign.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: WorkableDesign.ink,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
           ),
         ],
       ),

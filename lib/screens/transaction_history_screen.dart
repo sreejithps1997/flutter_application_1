@@ -1,11 +1,25 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
+
 class TransactionHistoryScreen extends StatefulWidget {
   static const routeName = '/transaction-history';
 
-  const TransactionHistoryScreen({Key? key}) : super(key: key);
+  final String ownerField;
+  final String title;
+  final bool isWorkerView;
+
+  const TransactionHistoryScreen({
+    super.key,
+    this.ownerField = 'customerId',
+    this.title = 'Transaction History',
+    this.isWorkerView = false,
+  });
 
   @override
   State<TransactionHistoryScreen> createState() =>
@@ -13,302 +27,191 @@ class TransactionHistoryScreen extends StatefulWidget {
 }
 
 class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
+  final _currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
+  final _dateFormat = DateFormat('dd MMM yyyy, h:mm a');
+
   String activeFilter = 'all';
   String searchQuery = '';
 
-  final List<Map<String, dynamic>> transactions = [
-    {
-      'id': 'TXN001',
-      'type': 'payment',
-      'worker': {'name': 'Raj Kumar', 'avatar': 'RK', 'rating': 4.8},
-      'service': 'House Cleaning',
-      'amount': 350,
-      'platformFee': 35,
-      'total': 385,
-      'status': 'completed',
-      'date': '2025-07-23',
-      'time': '2:30 PM',
-      'paymentMethod': 'UPI',
-      'duration': '3 hours',
-    },
-    {
-      'id': 'TXN002',
-      'type': 'refund',
-      'worker': {'name': 'Priya Singh', 'avatar': 'PS', 'rating': 4.5},
-      'service': 'Laundry Service',
-      'amount': 150,
-      'total': 150,
-      'status': 'completed',
-      'date': '2025-07-22',
-      'time': '11:45 AM',
-      'paymentMethod': 'Wallet',
-      'reason': 'Service cancelled by worker',
-    },
-    {
-      'id': 'TXN003',
-      'type': 'payment',
-      'worker': {'name': 'Mohammad Ali', 'avatar': 'MA', 'rating': 4.9},
-      'service': 'Plumbing Repair',
-      'amount': 500,
-      'platformFee': 50,
-      'total': 550,
-      'status': 'pending',
-      'date': '2025-07-22',
-      'time': '9:15 AM',
-      'paymentMethod': 'Credit Card',
-      'duration': '2 hours',
-    },
-    {
-      'id': 'TXN004',
-      'type': 'wallet_credit',
-      'amount': 200,
-      'total': 200,
-      'status': 'completed',
-      'date': '2025-07-21',
-      'time': '6:00 PM',
-      'paymentMethod': 'UPI',
-      'reason': 'Wallet top-up',
-    },
-    {
-      'id': 'TXN005',
-      'type': 'cashback',
-      'amount': 25,
-      'total': 25,
-      'status': 'completed',
-      'date': '2025-07-20',
-      'time': '3:20 PM',
-      'reason': 'First booking cashback',
-    },
-  ];
-
-  Icon getStatusIcon(String status) {
-    switch (status) {
-      case 'completed':
-        return const Icon(
-          LucideIcons.checkCircle,
-          color: Colors.green,
-          size: 16,
-        );
-      case 'pending':
-        return const Icon(LucideIcons.clock, color: Colors.orange, size: 16);
-      case 'failed':
-        return const Icon(LucideIcons.xCircle, color: Colors.red, size: 16);
-      default:
-        return const Icon(
-          LucideIcons.alertCircle,
-          color: Colors.grey,
-          size: 16,
-        );
-    }
+  Stream<QuerySnapshot<Map<String, dynamic>>> _transactionStream(String uid) {
+    return FirebaseFirestore.instance
+        .collection('transactions')
+        .where(widget.ownerField, isEqualTo: uid)
+        .snapshots();
   }
 
-  Icon getTypeIcon(String type) {
-    switch (type) {
-      case 'payment':
-        return const Icon(LucideIcons.creditCard, color: Colors.blue, size: 20);
-      case 'refund':
-        return const Icon(LucideIcons.rotateCcw, color: Colors.green, size: 20);
-      case 'wallet_credit':
-        return const Icon(LucideIcons.wallet, color: Colors.purple, size: 20);
-      case 'cashback':
-        return const Icon(
-          LucideIcons.trendingUp,
-          color: Colors.green,
-          size: 20,
-        );
-      default:
-        return const Icon(LucideIcons.creditCard, color: Colors.grey, size: 20);
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedDocs(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final docs = snapshot.docs.toList();
+    docs.sort((a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())));
+    return docs;
+  }
+
+  DateTime _createdAt(Map<String, dynamic> data) {
+    final timestamp = data['createdAt'] ?? data['updatedAt'];
+    if (timestamp is Timestamp) return timestamp.toDate();
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  double _amount(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  bool _isCredit(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    return type == 'refund' || type == 'cashback' || type == 'wallet_credit';
+  }
+
+  bool _matchesFilter(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    if (activeFilter == 'all') return true;
+    if (activeFilter == 'payment') {
+      return type == 'payment' || type == 'upi_payment';
     }
+    return type == activeFilter;
+  }
+
+  bool _matchesSearch(String id, Map<String, dynamic> data) {
+    final query = searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+
+    final values = [
+      id,
+      data['bookingId'],
+      data['workerName'],
+      data['service'],
+      data['paymentMethod'],
+      data['status'],
+    ].whereType<Object>().map((value) => value.toString().toLowerCase());
+
+    return values.any((value) => value.contains(query));
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredTransactions = transactions
-        .where(
-          (t) =>
-              (activeFilter == 'all' || t['type'] == activeFilter) &&
-              (searchQuery.isEmpty ||
-                  (t['worker']?['name']?.toLowerCase().contains(
-                        searchQuery.toLowerCase(),
-                      ) ??
-                      false) ||
-                  (t['id']?.toLowerCase().contains(searchQuery.toLowerCase()))),
-        )
-        .toList();
+    final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
-        title: const Text('Transaction History'),
+        title: Text(widget.title),
         actions: [
-          IconButton(icon: const Icon(LucideIcons.download), onPressed: () {}),
+          IconButton(
+            icon: const Icon(LucideIcons.download),
+            onPressed: () => _showSnack('Export will be added after reports'),
+          ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: user == null
+          ? _buildEmptyState('Sign in to view transactions')
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _transactionStream(user.uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return _buildEmptyState('Unable to load transactions');
+                }
+
+                final allDocs = _sortedDocs(snapshot.data!);
+                final visibleDocs = allDocs.where((doc) {
+                  final data = doc.data();
+                  return _matchesFilter(data) && _matchesSearch(doc.id, data);
+                }).toList();
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    WorkablePageHeader(
+                      title: widget.isWorkerView
+                          ? 'Earnings ledger'
+                          : 'Transaction ledger',
+                      subtitle:
+                          'Review payments, refunds, credits, and booking-linked money movement.',
+                      icon: LucideIcons.receipt,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildSummaryCard(allDocs),
+                    const SizedBox(height: 16),
+                    _buildSearchField(),
+                    const SizedBox(height: 12),
+                    _buildFilters(),
+                    const SizedBox(height: 16),
+                    if (visibleDocs.isEmpty)
+                      _buildEmptyState('No matching transactions')
+                    else
+                      ...visibleDocs.map(_buildTransactionCard),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildSummaryCard(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final now = DateTime.now();
+    final monthDocs = docs.where((doc) {
+      final date = _createdAt(doc.data());
+      return date.year == now.year && date.month == now.month;
+    }).toList();
+
+    final outgoing = monthDocs.fold<double>(0, (total, doc) {
+      final data = doc.data();
+      return _isCredit(data) ? total : total + _amount(data, 'total');
+    });
+    final incoming = monthDocs.fold<double>(0, (total, doc) {
+      final data = doc.data();
+      return _isCredit(data) ? total + _amount(data, 'total') : total;
+    });
+    final average = monthDocs.isEmpty ? 0 : outgoing / monthDocs.length;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      elevation: 1,
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Summary Section
-            Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    const Text(
-                      'This Month Summary',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '₹1,285',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              'Total Spent',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '₹175',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green,
-                              ),
-                            ),
-                            Text(
-                              'Total Saved',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '8',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            ),
-                            Text(
-                              'Transactions',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '₹350',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.purple,
-                              ),
-                            ),
-                            Text(
-                              'Avg. Amount',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            const Text(
+              'This Month Summary',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 16),
-
-            // Search Field
-            TextField(
-              decoration: InputDecoration(
-                hintText: 'Search by worker name or booking ID',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (value) => setState(() => searchQuery = value),
-            ),
-            const SizedBox(height: 12),
-
-            // Filter Chips
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildFilterChip('All', 'all'),
-                  _buildFilterChip('Payments', 'payment'),
-                  _buildFilterChip('Refunds', 'refund'),
-                  _buildFilterChip('Wallet', 'wallet_credit'),
-                  _buildFilterChip('Cashback', 'cashback'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Date Filter
+            const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: const [
-                    Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                    SizedBox(width: 6),
-                    Text('Last 30 days', style: TextStyle(color: Colors.grey)),
-                  ],
+                _summaryMetric(
+                  widget.isWorkerView ? 'Collected' : 'Total Spent',
+                  _currency.format(outgoing),
                 ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text('Change Period'),
+                _summaryMetric(
+                  widget.isWorkerView ? 'Adjustments' : 'Credits/Refunds',
+                  _currency.format(incoming),
+                  alignEnd: true,
+                  color: Colors.green,
                 ),
               ],
             ),
-
-            // Transaction List
-            const SizedBox(height: 8),
-            ...filteredTransactions.map((tx) => _buildTransactionCard(tx)),
-
-            // Footer
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () {},
-              child: const Text('Load More Transactions'),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Showing transactions from last 30 days',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _summaryMetric('Transactions', monthDocs.length.toString()),
+                _summaryMetric(
+                  'Avg. Amount',
+                  _currency.format(average),
+                  alignEnd: true,
+                  color: Colors.purple,
+                ),
+              ],
             ),
           ],
         ),
@@ -316,38 +219,90 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, String value) {
-    final isActive = activeFilter == value;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: isActive,
-        onSelected: (_) => setState(() => activeFilter = value),
-        selectedColor: Colors.blue.shade600,
-        backgroundColor: Colors.grey.shade200,
-        labelStyle: TextStyle(color: isActive ? Colors.white : Colors.black87),
+  Widget _summaryMetric(
+    String label,
+    String value, {
+    bool alignEnd = false,
+    Color? color,
+  }) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: const TextStyle(color: Colors.grey)),
+      ],
+    );
+  }
+
+  Widget _buildSearchField() {
+    return TextField(
+      decoration: InputDecoration(
+        hintText: 'Search worker, booking, method, or status',
+        prefixIcon: const Icon(Icons.search),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      onChanged: (value) => setState(() => searchQuery = value),
+    );
+  }
+
+  Widget _buildFilters() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildFilterChip('All', 'all'),
+          _buildFilterChip('Payments', 'payment'),
+          _buildFilterChip('Refunds', 'refund'),
+          _buildFilterChip('Wallet', 'wallet_credit'),
+          _buildFilterChip('Cashback', 'cashback'),
+        ],
       ),
     );
   }
 
-  Widget _buildTransactionCard(Map<String, dynamic> tx) {
-    final isPositive =
-        tx['type'] == 'refund' ||
-        tx['type'] == 'cashback' ||
-        tx['type'] == 'wallet_credit';
+  Widget _buildFilterChip(String label, String value) {
+    final isActive = activeFilter == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: isActive,
+        onSelected: (_) => setState(() => activeFilter = value),
+      ),
+    );
+  }
+
+  Widget _buildTransactionCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final isCredit = _isCredit(data);
+    final total = _amount(data, 'total');
+    final amount = _amount(data, 'amount');
+    final platformFee = _amount(data, 'platformFee');
+    final date = _createdAt(data);
+
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
+      margin: const EdgeInsets.only(bottom: 10),
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: Colors.grey.shade100,
-              child: getTypeIcon(tx['type']),
+              backgroundColor: _typeColor(data).withValues(alpha: 0.12),
+              child: Icon(_typeIcon(data), color: _typeColor(data), size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -356,63 +311,25 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        tx['type'] == 'payment'
-                            ? 'Payment to'
-                            : tx['type'] == 'refund'
-                            ? 'Refund from'
-                            : tx['type'] == 'wallet_credit'
-                            ? 'Wallet Top-up'
-                            : 'Cashback Received',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      Expanded(
+                        child: Text(
+                          _titleFor(data),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                       ),
-                      const SizedBox(width: 6),
-                      getStatusIcon(tx['status']),
+                      _statusPill(data['status']?.toString() ?? 'pending'),
                     ],
                   ),
-                  if (tx['worker'] != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4.0),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 10,
-                            backgroundColor: Colors.blue,
-                            child: Text(
-                              tx['worker']['avatar'],
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            tx['worker']['name'],
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.star, size: 14, color: Colors.amber),
-                          Text(
-                            '${tx['worker']['rating']}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (tx['service'] != null || tx['reason'] != null)
-                    Text(
-                      tx['service'] ?? tx['reason'],
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  if (tx['duration'] != null)
-                    Text(
-                      "Duration: ${tx['duration']}",
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
                   const SizedBox(height: 4),
                   Text(
-                    "${tx['date']} • ${tx['time']} • ID: ${tx['id']}",
+                    data['service']?.toString() ??
+                        data['reason']?.toString() ??
+                        'Workable transaction',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_dateFormat.format(date)} • ID: ${data['id'] ?? doc.id}',
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
@@ -423,31 +340,115 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${isPositive ? '+' : '-'}₹${tx['total']}',
+                  '${isCredit ? '+' : '-'}${_currency.format(total)}',
                   style: TextStyle(
-                    color: isPositive ? Colors.green : Colors.black,
+                    color: isCredit ? Colors.green : Colors.black,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (tx['platformFee'] != null)
+                if (platformFee > 0)
                   Text(
-                    '₹${tx['amount']} + ₹${tx['platformFee']} fee',
+                    '${_currency.format(amount)} + ${_currency.format(platformFee)} fee',
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 Text(
-                  '${tx['paymentMethod'] ?? ''}',
+                  data['paymentMethod']?.toString() ?? '',
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-                const Icon(
-                  LucideIcons.moreVertical,
-                  size: 16,
-                  color: Colors.grey,
                 ),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _statusPill(String status) {
+    final color = _statusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        status.replaceAll('_', ' '),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  IconData _typeIcon(Map<String, dynamic> data) {
+    switch (data['type']?.toString()) {
+      case 'refund':
+        return LucideIcons.rotateCcw;
+      case 'wallet_credit':
+        return LucideIcons.wallet;
+      case 'cashback':
+        return LucideIcons.trendingUp;
+      default:
+        return LucideIcons.creditCard;
+    }
+  }
+
+  Color _typeColor(Map<String, dynamic> data) {
+    switch (data['type']?.toString()) {
+      case 'refund':
+      case 'cashback':
+        return Colors.green;
+      case 'wallet_credit':
+        return Colors.purple;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  Color _statusColor(String status) {
+    if (status.contains('paid') || status.contains('completed')) {
+      return Colors.green;
+    }
+    if (status.contains('failed')) return Colors.red;
+    return Colors.orange;
+  }
+
+  String _titleFor(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? '';
+    switch (type) {
+      case 'refund':
+        return 'Refund';
+      case 'wallet_credit':
+        return 'Wallet Credit';
+      case 'cashback':
+        return 'Cashback';
+      default:
+        final worker = data['workerName']?.toString();
+        return worker == null || worker.isEmpty ? 'Service Payment' : worker;
+    }
+  }
+
+  Widget _buildEmptyState(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.receipt, size: 42, color: Colors.grey.shade500),
+            const SizedBox(height: 12),
+            Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 }

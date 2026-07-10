@@ -27,6 +27,7 @@ class WorkerOnboardingData {
 
   // NEW FIELDS for pricing & payment
   Map<String, String> wageMap;
+  Map<String, String> skillExperience;
   String? upiId;
   String? bankAccountNumber;
   String? ifscCode;
@@ -56,6 +57,7 @@ class WorkerOnboardingData {
     this.latitude = 0.0,
     this.longitude = 0.0,
     this.wageMap = const {},
+    this.skillExperience = const {},
     this.upiId,
     this.bankAccountNumber,
     this.ifscCode,
@@ -86,6 +88,7 @@ class WorkerOnboardingData {
     double? latitude,
     double? longitude,
     Map<String, String>? wageMap,
+    Map<String, String>? skillExperience,
     String? upiId,
     String? bankAccountNumber,
     String? ifscCode,
@@ -115,6 +118,7 @@ class WorkerOnboardingData {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       wageMap: wageMap ?? this.wageMap,
+      skillExperience: skillExperience ?? this.skillExperience,
       upiId: upiId ?? this.upiId,
       bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
       ifscCode: ifscCode ?? this.ifscCode,
@@ -147,6 +151,7 @@ class WorkerOnboardingData {
       'latitude': latitude,
       'longitude': longitude,
       'wageMap': wageMap,
+      'skillExperience': skillExperience,
       'upiId': upiId,
       'bankAccountNumber': bankAccountNumber,
       'ifscCode': ifscCode,
@@ -181,6 +186,7 @@ class WorkerOnboardingData {
       latitude: map['latitude']?.toDouble() ?? 0.0,
       longitude: map['longitude']?.toDouble() ?? 0.0,
       wageMap: Map<String, String>.from(map['wageMap'] ?? {}),
+      skillExperience: Map<String, String>.from(map['skillExperience'] ?? {}),
       upiId: map['upiId'],
       bankAccountNumber: map['bankAccountNumber'],
       ifscCode: map['ifscCode'],

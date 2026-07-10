@@ -18,13 +18,10 @@ class BookingFlow {
     final visible = (w['visibleToUsers'] ?? false) == true;
     final img = (w['imageUrl'] ?? '').toString().trim().isNotEmpty;
     final selfieOk = (w['verification']?['selfie'] ?? '') == 'verified';
-    final tier = (w['verification']?['tier'] ?? 'new') as String;
     final hasLoc = w['location'] != null;
     final disabled = (w['accountDisabled'] ?? false) == true;
 
-    // tighten if you want; or set tierOk = true if not enforcing tiers yet
-    final tierOk = tier == 'verified' || tier == 'police_verified';
-    return visible && !disabled && img && selfieOk && hasLoc && tierOk;
+    return visible && !disabled && img && selfieOk && hasLoc;
   }
 
   /// Rebook flow you can call from anywhere
@@ -49,6 +46,8 @@ class BookingFlow {
 
     // Check current eligibility
     final worker = await _getWorker(oldWorkerId);
+    if (!context.mounted) return;
+
     if (isWorkerEligible(worker)) {
       final workerName = (worker?['name'] ?? worker?['fullName'] ?? '')
           .toString();
@@ -95,6 +94,7 @@ class BookingFlow {
 
     // Fetch worker
     final worker = await _getWorker(id);
+    if (!context.mounted) return;
 
     // Check eligibility
     if (!isWorkerEligible(worker)) {
@@ -136,6 +136,8 @@ class BookingFlow {
           .collection('workers')
           .doc(workerId)
           .get();
+      if (!context.mounted) return;
+
       final worker = snap.data();
 
       if (!isWorkerEligible(worker)) {
@@ -147,6 +149,8 @@ class BookingFlow {
         return;
       }
     } catch (_) {
+      if (!context.mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not verify worker availability.')),
       );

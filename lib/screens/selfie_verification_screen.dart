@@ -1,8 +1,13 @@
-import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../core/theme/workable_design.dart';
+import '../models/verification_documents.dart';
+import '../services/identity_verification_service.dart';
+import '../widgets/workable_ui.dart';
 
 class SelfieVerificationScreen extends StatefulWidget {
   static const routeName = '/selfie-verification';
@@ -15,468 +20,353 @@ class SelfieVerificationScreen extends StatefulWidget {
 }
 
 class _SelfieVerificationScreenState extends State<SelfieVerificationScreen> {
-  String currentStep =
-      'instructions'; // instructions, camera, processing, success, failed
-  bool faceDetected = false;
-  bool isProcessing = false;
-  String livenessStep = 'center'; // center, blink, smile
+  final ImagePicker _picker = ImagePicker();
+  final IdentityVerificationService _verificationService =
+      IdentityVerificationService();
 
-  @override
-  void initState() {
-    super.initState();
-  }
+  String _step = 'instructions';
+  File? _capturedImage;
+  bool _isUploading = false;
+  String _error = '';
 
-  void handleStartVerification() {
-    setState(() {
-      currentStep = 'camera';
-      faceDetected = false;
-      isProcessing = false;
-      livenessStep = 'center';
-    });
+  Future<void> _captureSelfie() async {
+    setState(() => _error = '');
 
-    // Simulate face detection after 2 seconds
-    Timer(const Duration(seconds: 2), () {
+    try {
+      final pickedFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        preferredCameraDevice: CameraDevice.front,
+      );
+
+      if (pickedFile == null) return;
+
       setState(() {
-        faceDetected = true;
+        _capturedImage = File(pickedFile.path);
+        _step = 'preview';
       });
-
-      // Simulate liveness steps
-      Timer(const Duration(seconds: 2), () {
-        setState(() => livenessStep = 'blink');
-        Timer(const Duration(seconds: 2), () {
-          setState(() => livenessStep = 'smile');
-        });
-      });
-    });
-  }
-
-  void handleCapture() {
-    setState(() {
-      isProcessing = true;
-    });
-
-    // Simulate processing animation
-    Timer(const Duration(seconds: 1), () {
-      setState(() {
-        currentStep = 'processing';
-      });
-
-      // Simulate final result after 3 seconds
-      Timer(const Duration(seconds: 3), () async {
-        try {
-          final uid = FirebaseAuth.instance.currentUser!.uid;
-
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(uid)
-              .collection('identityVerification')
-              .doc('status')
-              .set({'selfie': 'verified'}, SetOptions(merge: true));
-
-          if (mounted) Navigator.pop(context, true);
-        } catch (e) {
-          debugPrint("Error saving selfie verification: $e");
-          if (mounted) {
-            setState(() {
-              currentStep = 'failed'; // Optional: show error
-            });
-          }
-        }
-      });
-    });
-  }
-
-  void handleRetry() {
-    setState(() {
-      currentStep = 'camera';
-      faceDetected = false;
-      isProcessing = false;
-      livenessStep = 'center';
-    });
-
-    handleStartVerification();
-  }
-
-  PreferredSizeWidget buildHeader() {
-    return AppBar(
-      backgroundColor: Colors.white,
-      elevation: 1,
-      leading: IconButton(
-        icon: const Icon(LucideIcons.arrowLeft, color: Colors.black),
-        onPressed: () {
-          if (currentStep == 'instructions') {
-            Navigator.pop(context);
-          } else {
-            setState(() {
-              currentStep = 'instructions';
-            });
-          }
-        },
-      ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Selfie Verification",
-            style: TextStyle(color: Colors.black),
-          ),
-          if (currentStep != 'instructions')
-            const Text(
-              "Step 2 of 3",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(LucideIcons.helpCircle, color: Colors.grey),
-          onPressed: () {},
-        ),
-      ],
-    );
-  }
-
-  Widget buildInstructionsScreen() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          const SizedBox(height: 24),
-          const CircleAvatar(
-            radius: 32,
-            backgroundColor: Color(0xFFDCEEFB),
-            child: Icon(LucideIcons.camera, color: Colors.blue, size: 28),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            "Selfie Verification",
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "We'll take a quick photo to verify your identity",
-            style: TextStyle(color: Colors.grey),
-          ),
-          const SizedBox(height: 24),
-
-          // Instructions list
-          _buildCheckItem(
-            "Good lighting",
-            "Make sure your face is well-lit and clearly visible",
-          ),
-          _buildCheckItem(
-            "Remove accessories",
-            "Take off glasses, hats, or anything covering your face",
-          ),
-          _buildCheckItem(
-            "Look directly at camera",
-            "Keep your face centered and look straight ahead",
-          ),
-
-          const SizedBox(height: 24),
-          _buildTips(),
-          const SizedBox(height: 24),
-          _buildSecurityNote(),
-
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              minimumSize: const Size.fromHeight(50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(LucideIcons.camera),
-            label: const Text("Start Verification"),
-            onPressed: handleStartVerification,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCheckItem(String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const CircleAvatar(
-            radius: 12,
-            backgroundColor: Color(0xFFD1FAE5),
-            child: Icon(LucideIcons.check, size: 14, color: Colors.green),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTips() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFECFDF5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD1FAE5)),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: const [
-          Icon(LucideIcons.smile, color: Colors.green, size: 28),
-          SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              "✅ Clear & Centered\n❌ Too dark or blurry",
-              style: TextStyle(fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSecurityNote() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDBEAFE)),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: const [
-          Icon(LucideIcons.shield, color: Colors.blue),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              "Your privacy is protected. Photos are encrypted and used only for verification.",
-              style: TextStyle(fontSize: 13, color: Colors.blue),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildCameraScreen() {
-    return Column(
-      children: [
-        const SizedBox(height: 20),
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              height: 300,
-              width: double.infinity,
-              color: Colors.black12,
-              child: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(LucideIcons.camera, size: 48, color: Colors.grey),
-                    Text(
-                      "Camera Preview",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Container(
-              height: 240,
-              width: 180,
-              decoration: BoxDecoration(
-                shape: BoxShape.rectangle,
-                border: Border.all(
-                  color: faceDetected ? Colors.green : Colors.white,
-                  width: 4,
-                ),
-                borderRadius: BorderRadius.circular(100),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          faceDetected
-              ? "Face Detected - Hold Still"
-              : "Position your face in the oval",
-          style: TextStyle(
-            color: faceDetected ? Colors.green : Colors.orange,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (faceDetected) _buildLivenessInstructions(),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            IconButton(
-              icon: const Icon(LucideIcons.rotateCcw),
-              onPressed: () {},
-            ),
-            FloatingActionButton(
-              onPressed: faceDetected && !isProcessing ? handleCapture : null,
-              backgroundColor: faceDetected ? Colors.blue : Colors.grey,
-              child: isProcessing
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Icon(LucideIcons.camera),
-            ),
-            IconButton(
-              icon: const Icon(LucideIcons.refreshCw),
-              onPressed: handleRetry,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLivenessInstructions() {
-    String text = '';
-    IconData icon = LucideIcons.eye;
-    if (livenessStep == 'center') {
-      text = "Look straight at the camera";
-      icon = LucideIcons.eye;
-    } else if (livenessStep == 'blink') {
-      text = "Now blink your eyes";
-      icon = LucideIcons.eye;
-    } else if (livenessStep == 'smile') {
-      text = "Please smile";
-      icon = LucideIcons.smile;
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Camera could not be opened. Please try again.');
     }
-
-    return Column(
-      children: [
-        Text(text, style: const TextStyle(fontSize: 14)),
-        const SizedBox(height: 8),
-        Icon(icon, size: 28, color: Colors.blue),
-      ],
-    );
   }
 
-  Widget buildProcessingScreen() {
-    return Column(
-      children: const [
-        SizedBox(height: 80),
-        CircularProgressIndicator(),
-        SizedBox(height: 24),
-        Text("Verifying your photo...", style: TextStyle(fontSize: 18)),
-        SizedBox(height: 8),
-        Text("Please wait while we process your selfie"),
-      ],
-    );
-  }
+  Future<void> _submitSelfie() async {
+    if (_capturedImage == null || _isUploading) return;
 
-  Widget buildSuccessScreen() {
-    return Column(
-      children: [
-        const SizedBox(height: 80),
-        const CircleAvatar(
-          radius: 40,
-          backgroundColor: Color(0xFFD1FAE5),
-          child: Icon(LucideIcons.checkCircle, size: 40, color: Colors.green),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          "Verification Successful!",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        const Text("Your selfie has been verified successfully"),
-        const SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context, true),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            minimumSize: const Size.fromHeight(50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: const Text("Continue to Profile"),
-        ),
-      ],
-    );
-  }
+    setState(() {
+      _isUploading = true;
+      _error = '';
+    });
 
-  Widget buildFailedScreen() {
-    return Column(
-      children: [
-        const SizedBox(height: 80),
-        const CircleAvatar(
-          radius: 40,
-          backgroundColor: Color(0xFFFEE2E2),
-          child: Icon(LucideIcons.xCircle, size: 40, color: Colors.red),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          "Verification Failed",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        const Text("We couldn't verify your selfie. Please try again."),
-        const SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: handleRetry,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue,
-            minimumSize: const Size.fromHeight(50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: const Text("Try Again"),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: () => Navigator.pop(context),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: const Text("Go Back"),
-        ),
-      ],
-    );
+    try {
+      final userData = await _verificationService.loadCurrentUserData();
+      await _verificationService.submitVerificationDocument(
+        config: VerificationDocuments.selfie,
+        uploadMethod: 'camera',
+        imageFile: _capturedImage,
+        fields: {
+          'name': userData['name'] ?? userData['fullName'] ?? '',
+          'captureMethod': 'front_camera',
+        },
+      );
+
+      if (!mounted) return;
+      setState(() => _step = 'submitted');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Selfie upload failed. Please retake and retry.');
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: buildHeader(),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Builder(
-          builder: (_) {
-            if (currentStep == 'instructions') return buildInstructionsScreen();
-            if (currentStep == 'camera') return buildCameraScreen();
-            if (currentStep == 'processing') return buildProcessingScreen();
-            if (currentStep == 'success') return buildSuccessScreen();
-            if (currentStep == 'failed') return buildFailedScreen();
-
-            return const SizedBox();
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(
+        title: const Text('Selfie Verification'),
+        leading: IconButton(
+          icon: const Icon(LucideIcons.arrowLeft),
+          onPressed: () {
+            if (_step == 'preview') {
+              setState(() => _step = 'instructions');
+            } else {
+              Navigator.pop(context, _step == 'submitted');
+            }
           },
         ),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(WorkableDesign.pagePadding),
+          child: Column(
+            children: [
+              const WorkablePageHeader(
+                title: 'Face match check',
+                subtitle:
+                    'Capture a clear selfie so the account owner and identity documents can be trusted.',
+                icon: LucideIcons.camera,
+              ),
+              const SizedBox(height: 16),
+              _buildStepIndicator(),
+              const SizedBox(height: 16),
+              WorkableSectionCard(
+                child: _step == 'preview'
+                    ? _buildPreviewScreen()
+                    : _step == 'submitted'
+                    ? _buildSubmittedScreen()
+                    : _buildInstructionsScreen(),
+              ),
+              if (_error.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildErrorCard(),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepIndicator() {
+    final steps = ['instructions', 'preview', 'submitted'];
+    final labels = ['Guide', 'Preview', 'Review'];
+    final currentIndex = steps.indexOf(_step);
+
+    return WorkableSectionCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: List.generate(3, (index) {
+          final isActive = index == currentIndex;
+          final isDone = index < currentIndex;
+
+          return Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: isActive || isDone
+                        ? WorkableDesign.primary
+                        : WorkableDesign.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Center(
+                    child: isDone
+                        ? const Icon(
+                            LucideIcons.check,
+                            size: 15,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: isActive
+                                  ? Colors.white
+                                  : WorkableDesign.muted,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    labels[index],
+                    style: TextStyle(
+                      color: isActive || isDone
+                          ? WorkableDesign.ink
+                          : WorkableDesign.muted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildInstructionsScreen() {
+    return Column(
+      children: [
+        _buildIconTitle(
+          icon: LucideIcons.scanFace,
+          title: 'Take a live selfie',
+          subtitle:
+              'Use good lighting, keep your face centered, and remove masks or sunglasses.',
+        ),
+        const SizedBox(height: 20),
+        const WorkableInfoRow(
+          icon: LucideIcons.sun,
+          text: 'Stand in bright, even lighting.',
+        ),
+        const SizedBox(height: 10),
+        const WorkableInfoRow(
+          icon: LucideIcons.eye,
+          text: 'Look directly at the camera with your full face visible.',
+        ),
+        const SizedBox(height: 10),
+        const WorkableInfoRow(
+          icon: LucideIcons.shieldCheck,
+          text: 'Your selfie is only used for account verification review.',
+        ),
+        const SizedBox(height: 22),
+        FilledButton.icon(
+          onPressed: _captureSelfie,
+          icon: const Icon(LucideIcons.camera),
+          label: const Text('Capture Selfie'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPreviewScreen() {
+    return Column(
+      children: [
+        if (_capturedImage != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            child: Image.file(
+              _capturedImage!,
+              height: 360,
+              width: double.infinity,
+              fit: BoxFit.cover,
+            ),
+          ),
+        const SizedBox(height: 16),
+        const Text(
+          'Confirm your selfie is clear before submitting.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: WorkableDesign.ink,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Blurry, cropped, or dark photos may be rejected by review.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: WorkableDesign.muted),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _isUploading ? null : _captureSelfie,
+                icon: const Icon(LucideIcons.refreshCw),
+                label: const Text('Retake'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _isUploading ? null : _submitSelfie,
+                icon: _isUploading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(LucideIcons.upload),
+                label: Text(_isUploading ? 'Submitting...' : 'Submit'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubmittedScreen() {
+    return Column(
+      children: [
+        _buildIconTitle(
+          icon: LucideIcons.checkCircle,
+          title: 'Selfie submitted',
+          subtitle:
+              'Your face match is now under review. Most reviews finish within 2-3 hours.',
+          color: WorkableDesign.success,
+        ),
+        const SizedBox(height: 20),
+        const WorkableInfoRow(
+          icon: LucideIcons.clock,
+          text: 'You can continue using the app while review is pending.',
+        ),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Back to Verification'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIconTitle({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Color color = WorkableDesign.primary,
+  }) {
+    return Column(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+          ),
+          child: Icon(icon, color: color, size: 30),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: WorkableDesign.ink,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: WorkableDesign.muted, height: 1.35),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorCard() {
+    return WorkableSectionCard(
+      color: WorkableDesign.danger.withValues(alpha: 0.06),
+      borderColor: WorkableDesign.danger.withValues(alpha: 0.18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(LucideIcons.alertCircle, color: WorkableDesign.danger),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _error,
+              style: const TextStyle(
+                color: WorkableDesign.danger,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

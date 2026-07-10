@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
+import '../core/theme/workable_design.dart';
 import '../services/chat_service.dart'; // Adjust path as needed
+import '../widgets/workable_ui.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -75,6 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _scrollToBottom();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -103,6 +103,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await _chatService.sendImageMessage(_chatId, File(image.path));
       _scrollToBottom();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -114,6 +115,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await _chatService.sendLocationMessage(_chatId);
       _scrollToBottom();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -136,6 +138,40 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatService.updateTypingStatus(_chatId, widget.userRole, isTyping);
   }
 
+  Future<void> _openBookingDetails() async {
+    final bookingId = widget.bookingId;
+    if (bookingId == null || bookingId.trim().isEmpty) return;
+
+    if (widget.userRole == 'worker') {
+      Navigator.pushNamed(context, '/worker-job-details', arguments: bookingId);
+      return;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('bookings')
+          .doc(bookingId)
+          .get();
+      if (!mounted) return;
+      if (!doc.exists || doc.data() == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking details not found')),
+        );
+        return;
+      }
+      Navigator.pushNamed(
+        context,
+        '/customer-booking-detail',
+        arguments: {'id': doc.id, ...doc.data()!},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to open booking: $e')));
+    }
+  }
+
   Widget _buildMessage(Map<String, dynamic> msg, bool isMe) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -148,7 +184,7 @@ class _ChatScreenState extends State<ChatScreen> {
           if (!isMe) ...[
             CircleAvatar(
               radius: 16,
-              backgroundColor: Colors.blue.shade500,
+              backgroundColor: WorkableDesign.primary,
               child: Text(
                 widget.chatWithName[0].toUpperCase(),
                 style: const TextStyle(
@@ -164,7 +200,8 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isMe ? Colors.blue.shade600 : Colors.grey.shade100,
+                color: isMe ? WorkableDesign.primary : WorkableDesign.surface,
+                border: isMe ? null : Border.all(color: WorkableDesign.border),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
@@ -180,7 +217,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       msg['text'],
                       style: TextStyle(
                         fontSize: 14,
-                        color: isMe ? Colors.white : Colors.black87,
+                        color: isMe ? Colors.white : WorkableDesign.ink,
                       ),
                     ),
                   if (msg['imageUrl'] != null)
@@ -202,8 +239,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: isMe
-                            ? Colors.blue.shade700
-                            : Colors.grey.shade200,
+                            ? WorkableDesign.primaryDark
+                            : WorkableDesign.canvas,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: InkWell(
@@ -213,7 +250,9 @@ class _ChatScreenState extends State<ChatScreen> {
                           children: [
                             Icon(
                               Icons.location_on,
-                              color: isMe ? Colors.white : Colors.blue.shade600,
+                              color: isMe
+                                  ? Colors.white
+                                  : WorkableDesign.primary,
                               size: 16,
                             ),
                             const SizedBox(width: 4),
@@ -222,7 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               style: TextStyle(
                                 color: isMe
                                     ? Colors.white
-                                    : Colors.blue.shade600,
+                                    : WorkableDesign.primary,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -243,7 +282,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               fontSize: 10,
                               color: isMe
                                   ? Colors.white70
-                                  : Colors.grey.shade600,
+                                  : WorkableDesign.muted,
                             ),
                           ),
                           if (isMe) ...[
@@ -271,16 +310,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  bool _isLastSentMessage(List<DocumentSnapshot> docs, int index, String uid) {
-    for (int i = docs.length - 1; i >= 0; i--) {
-      final data = docs[i].data() as Map<String, dynamic>;
-      if (data['senderId'] == uid) {
-        return i == index;
-      }
-    }
-    return false;
-  }
-
   Widget _buildQuickReplies() {
     if (!_showQuickReplies) return const SizedBox.shrink();
 
@@ -301,13 +330,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade300),
+                  color: WorkableDesign.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: WorkableDesign.border),
                 ),
                 child: Text(
                   _quickReplies[index],
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  style: TextStyle(fontSize: 12, color: WorkableDesign.ink),
                 ),
               ),
             ),
@@ -330,19 +359,19 @@ class _ChatScreenState extends State<ChatScreen> {
     final uid = _auth.currentUser!.uid;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
+          icon: const Icon(Icons.arrow_back, color: WorkableDesign.ink),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.blue.shade500,
+              backgroundColor: WorkableDesign.primary,
               child: Text(
                 widget.chatWithName[0].toUpperCase(),
                 style: const TextStyle(
@@ -360,7 +389,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Text(
                     widget.chatWithName,
                     style: const TextStyle(
-                      color: Colors.black87,
+                      color: WorkableDesign.ink,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -369,7 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     Text(
                       widget.workerService!,
                       style: TextStyle(
-                        color: Colors.grey.shade600,
+                        color: WorkableDesign.muted,
                         fontSize: 12,
                       ),
                     ),
@@ -403,13 +432,13 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.phone, color: Colors.grey.shade600),
+            icon: Icon(Icons.phone, color: WorkableDesign.muted),
             onPressed: () {
               // Add phone call functionality
             },
           ),
           IconButton(
-            icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
+            icon: Icon(Icons.more_vert, color: WorkableDesign.muted),
             onPressed: () {
               // Add more options
             },
@@ -423,33 +452,31 @@ class _ChatScreenState extends State<ChatScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.blue.shade50,
+              color: WorkableDesign.primary.withValues(alpha: 0.08),
               child: Row(
                 children: [
                   Icon(
                     Icons.work_outline,
                     size: 16,
-                    color: Colors.blue.shade700,
+                    color: WorkableDesign.primary,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'Booking: ${widget.bookingId}',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.blue.shade700,
+                      color: WorkableDesign.primary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   const Spacer(),
                   GestureDetector(
-                    onTap: () {
-                      // Navigate to booking details
-                    },
+                    onTap: _openBookingDetails,
                     child: Text(
                       'View Details',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.blue.shade600,
+                        color: WorkableDesign.primary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -482,7 +509,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: WorkableDesign.surface,
+                                border: Border.all(
+                                  color: WorkableDesign.border,
+                                ),
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Row(
@@ -494,7 +524,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.grey.shade600,
+                                        WorkableDesign.muted,
                                       ),
                                     ),
                                   ),
@@ -502,7 +532,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   Text(
                                     "typing...",
                                     style: TextStyle(
-                                      color: Colors.grey.shade600,
+                                      color: WorkableDesign.muted,
                                       fontSize: 12,
                                       fontStyle: FontStyle.italic,
                                     ),
@@ -537,34 +567,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 });
 
                 if (docs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          "Start your conversation",
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          "Send a message to begin chatting with ${widget.chatWithName}",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
+                  return WorkableEmptyState(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'Start your conversation',
+                    message:
+                        'Send a message to begin chatting with ${widget.chatWithName}.',
                   );
                 }
 
@@ -592,27 +599,23 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  offset: const Offset(0, -2),
-                  blurRadius: 8,
-                  color: Colors.black.withOpacity(0.05),
-                ),
-              ],
+              color: WorkableDesign.surface,
+              border: const Border(
+                top: BorderSide(color: WorkableDesign.border),
+              ),
             ),
             child: Row(
               children: [
                 // Attachment button
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: WorkableDesign.canvas,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: PopupMenuButton<String>(
                     icon: Icon(
                       Icons.add,
-                      color: Colors.grey.shade600,
+                      color: WorkableDesign.muted,
                       size: 20,
                     ),
                     onSelected: (value) {
@@ -670,7 +673,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: WorkableDesign.canvas,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: TextField(
@@ -703,7 +706,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.blue.shade600,
+                      color: WorkableDesign.primary,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Icon(

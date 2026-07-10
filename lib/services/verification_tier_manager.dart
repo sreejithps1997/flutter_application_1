@@ -3,27 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class VerificationTierManager {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Returns the tier string: 'new', 'verified', or 'police_verified'
-  // Future<String> getUserVerificationTier(String uid) async {
-  //   try {
-  //     final snapshot = await _firestore
-  //         .collection('users')
-  //         .doc(uid)
-  //         .collection('identityVerification')
-  //         .get();
-
-  //     final statusMap = <String, String>{};
-  //     for (final doc in snapshot.docs) {
-  //       statusMap[doc.id] = doc['status'] ?? 'pending';
-  //     }
-
-  //     return _determineTierFromStatus(statusMap);
-  //   } catch (e) {
-  //     print('❌ Failed to load verification status: $e');
-  //     return 'new';
-  //   }
-  // }
-
   Future<String> getUserVerificationTier(String uid) async {
     try {
       final snapshot = await _firestore

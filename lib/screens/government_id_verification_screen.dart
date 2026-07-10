@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import '../core/theme/workable_design.dart';
 import '../helpers/document_ocr_helper.dart';
+import '../models/verification_document_config.dart';
+import '../models/verification_documents.dart';
+import '../services/identity_verification_service.dart';
 
 class GovernmentIdVerificationScreen extends StatefulWidget {
   static const routeName = '/government-id-verification';
@@ -28,8 +29,11 @@ class _GovernmentIdVerificationScreenState
   Map<String, String>? extractedData;
   String? verificationStatus;
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _numberController = TextEditingController();
   bool _isPickerActive = false;
-  final user = FirebaseAuth.instance.currentUser;
+  final IdentityVerificationService _verificationService =
+      IdentityVerificationService();
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
 
@@ -83,6 +87,11 @@ class _GovernmentIdVerificationScreenState
   void handleDocumentSelect(String docId) {
     setState(() {
       selectedDocType = docId;
+      capturedImage = null;
+      extractedData = null;
+      verificationStatus = null;
+      _nameController.clear();
+      _numberController.clear();
       currentStep = 'capture';
     });
   }
@@ -127,8 +136,55 @@ class _GovernmentIdVerificationScreenState
 
   @override
   void dispose() {
+    _nameController.dispose();
+    _numberController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Map<String, dynamic>? get selectedDocument {
+    if (selectedDocType == null) return null;
+
+    for (final doc in documentTypes) {
+      if (doc['id'] == selectedDocType) return doc;
+    }
+    return null;
+  }
+
+  VerificationDocumentConfig? get selectedDocumentConfig {
+    switch (selectedDocType) {
+      case 'aadhaar':
+        return VerificationDocuments.aadhaar;
+      case 'voter':
+        return VerificationDocuments.voterId;
+      case 'driving':
+        return VerificationDocuments.drivingLicense;
+      case 'passport':
+        return VerificationDocuments.passport;
+    }
+    return null;
+  }
+
+  IconData _documentIcon(String id) {
+    switch (id) {
+      case 'aadhaar':
+        return LucideIcons.badgeCheck;
+      case 'voter':
+        return LucideIcons.vote;
+      case 'driving':
+        return LucideIcons.car;
+      case 'passport':
+        return LucideIcons.bookOpen;
+      default:
+        return LucideIcons.fileText;
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   // Trigger camera capture
@@ -157,10 +213,16 @@ class _GovernmentIdVerificationScreenState
       final image = await _picker.pickImage(source: source);
       if (image != null) {
         capturedImage = File(image.path);
-        final doc = documentTypes.firstWhere((d) => d['id'] == selectedDocType);
+        final doc = selectedDocument;
+        if (doc == null) return;
         final extractor =
             doc['extractor'] as Future<Map<String, String>> Function(File);
         final result = await extractor(capturedImage!);
+
+        if (!mounted) return;
+
+        _nameController.text = result['name']?.trim() ?? '';
+        _numberController.text = result['number']?.trim() ?? '';
 
         setState(() {
           extractedData = result;
@@ -168,25 +230,65 @@ class _GovernmentIdVerificationScreenState
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      _showMessage(
+        'We could not read this document clearly. Please retake a sharper photo.',
+      );
     } finally {
-      setState(() => _isPickerActive = false);
+      if (mounted) setState(() => _isPickerActive = false);
     }
   }
 
   bool _isUploading = false; // add at top in State class
 
+  String? validateExtractedDetails() {
+    final name = _nameController.text.trim();
+    final number = _numberController.text.trim();
+
+    if (name.isEmpty) return 'Please enter the name shown on the document.';
+    if (number.isEmpty) return 'Please enter the document number.';
+
+    switch (selectedDocType) {
+      case 'aadhaar':
+        final digitsOnly = number.replaceAll(RegExp(r'\D'), '');
+        if (!RegExp(r'^\d{12}$').hasMatch(digitsOnly)) {
+          return 'Please enter a valid 12-digit Aadhaar number.';
+        }
+        break;
+      case 'voter':
+        if (number.length < 6) return 'Please enter a valid voter ID number.';
+        break;
+      case 'driving':
+        if (number.length < 8) {
+          return 'Please enter a valid driving license number.';
+        }
+        break;
+      case 'passport':
+        if (!RegExp(
+          r'^[A-Z][0-9]{7}$',
+          caseSensitive: false,
+        ).hasMatch(number)) {
+          return 'Please enter a valid passport number.';
+        }
+        break;
+    }
+
+    return null;
+  }
+
   Future<void> handleSubmitVerification() async {
     if (_isUploading ||
         capturedImage == null ||
         extractedData == null ||
-        selectedDocType == null ||
-        user == null)
+        selectedDocType == null) {
+      _showMessage('Please capture a document before submitting.');
       return;
+    }
 
-    final uid = user!.uid; // ✅ Promote once null check is done
+    final validationMessage = validateExtractedDetails();
+    if (validationMessage != null) {
+      _showMessage(validationMessage);
+      return;
+    }
 
     setState(() {
       _isUploading = true;
@@ -194,25 +296,27 @@ class _GovernmentIdVerificationScreenState
     });
 
     try {
-      final doc = documentTypes.firstWhere((d) => d['id'] == selectedDocType);
-      final fileName = '${uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final ref = FirebaseStorage.instance.ref('${doc['path']}/$fileName');
-      await ref.putFile(capturedImage!);
-      final downloadUrl = await ref.getDownloadURL();
+      final doc = selectedDocument;
+      final config = selectedDocumentConfig;
+      if (doc == null || config == null) {
+        _showMessage('Please select a valid document type.');
+        if (mounted) setState(() => currentStep = 'select');
+        return;
+      }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('identityVerification')
-          .doc(doc['firestoreKey'])
-          .set({
-            'name': extractedData!['name'],
-            'number': extractedData!['number'],
-            'imageUrl': downloadUrl,
-            'submittedAt': Timestamp.now(),
-            'status': 'pending',
-            'ocrRawText': extractedData.toString(),
-          });
+      await _verificationService.submitVerificationDocument(
+        config: config,
+        uploadMethod: 'file',
+        imageFile: capturedImage,
+        fields: {
+          'type': doc['id'],
+          'name': _nameController.text.trim(),
+          'number': _numberController.text.trim(),
+          'ocrRawText': extractedData.toString(),
+        },
+      );
+
+      if (!mounted) return;
 
       setState(() {
         verificationStatus = 'success';
@@ -220,15 +324,16 @@ class _GovernmentIdVerificationScreenState
         currentStep = 'result';
       });
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Verification failed: $e')));
+      _showMessage(
+        'Upload failed. Please check your connection and try again.',
+      );
+      if (!mounted) return;
       setState(() {
         verificationStatus = 'failed';
         currentStep = 'result';
       });
     } finally {
-      _isUploading = false;
+      if (mounted) setState(() => _isUploading = false);
     }
   }
 
@@ -241,19 +346,30 @@ class _GovernmentIdVerificationScreenState
         ),
         const SizedBox(height: 12),
         ...documentTypes.map((doc) {
-          return Card(
+          return Container(
             margin: const EdgeInsets.symmetric(vertical: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: WorkableDesign.cardDecoration(),
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(WorkableDesign.radius),
               onTap: () => handleDocumentSelect(doc['id']),
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Row(
                   children: [
-                    Text(doc['icon'], style: const TextStyle(fontSize: 28)),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: WorkableDesign.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(
+                          WorkableDesign.radius,
+                        ),
+                      ),
+                      child: Icon(
+                        _documentIcon(doc['id']?.toString() ?? ''),
+                        color: WorkableDesign.primary,
+                      ),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -261,11 +377,17 @@ class _GovernmentIdVerificationScreenState
                         children: [
                           Text(
                             doc['name'],
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: WorkableDesign.ink,
+                            ),
                           ),
                           Text(
                             doc['description'],
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: WorkableDesign.muted,
+                            ),
                           ),
                           Wrap(
                             spacing: 6,
@@ -276,9 +398,15 @@ class _GovernmentIdVerificationScreenState
                                       f,
                                       style: const TextStyle(fontSize: 10),
                                     ),
-                                    backgroundColor: Colors.blue[50],
+                                    backgroundColor: WorkableDesign.primary
+                                        .withValues(alpha: 0.08),
                                     labelStyle: const TextStyle(
-                                      color: Colors.blue,
+                                      color: WorkableDesign.primary,
+                                    ),
+                                    side: BorderSide(
+                                      color: WorkableDesign.primary.withValues(
+                                        alpha: 0.16,
+                                      ),
                                     ),
                                     padding: EdgeInsets.zero,
                                   ),
@@ -289,19 +417,22 @@ class _GovernmentIdVerificationScreenState
                             doc['requirements'],
                             style: const TextStyle(
                               fontSize: 11,
-                              color: Colors.grey,
+                              color: WorkableDesign.muted,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const Icon(Icons.chevron_right, color: Colors.grey),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: WorkableDesign.muted,
+                    ),
                   ],
                 ),
               ),
             ),
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -323,14 +454,18 @@ class _GovernmentIdVerificationScreenState
           height: 180,
           decoration: BoxDecoration(
             border: Border.all(
-              color: Colors.grey.shade300,
+              color: WorkableDesign.border,
               style: BorderStyle.solid,
             ),
-            borderRadius: BorderRadius.circular(12),
-            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            color: WorkableDesign.canvas,
           ),
-          child: const Center(
-            child: Icon(Icons.camera_alt, size: 40, color: Colors.grey),
+          child: Center(
+            child: Icon(
+              Icons.camera_alt,
+              size: 40,
+              color: WorkableDesign.muted,
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -338,15 +473,21 @@ class _GovernmentIdVerificationScreenState
           children: [
             Expanded(
               child: ElevatedButton.icon(
-                onPressed: handleImageCapture,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Take Photo'),
+                onPressed: _isPickerActive ? null : handleImageCapture,
+                icon: _isPickerActive
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.camera_alt),
+                label: Text(_isPickerActive ? 'Scanning...' : 'Take Photo'),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: handleFileUpload,
+                onPressed: _isPickerActive ? null : handleFileUpload,
                 icon: const Icon(Icons.upload),
                 label: const Text('Upload File'),
               ),
@@ -406,6 +547,8 @@ class _GovernmentIdVerificationScreenState
       return const Text("No data extracted.");
     }
 
+    final doc = selectedDocument;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -416,35 +559,59 @@ class _GovernmentIdVerificationScreenState
           ),
         const SizedBox(height: 12),
         const Text(
-          'Extracted Info',
+          'Review Extracted Details',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        ...extractedData!.entries.map(
-          (entry) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${entry.key}:',
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-                Text(
-                  entry.value,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
+        Text(
+          'Please confirm these details before submitting. You can correct OCR mistakes here.',
+          style: TextStyle(fontSize: 12, color: WorkableDesign.muted),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _nameController,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: 'Name on ${doc?['name'] ?? 'document'}',
+            border: const OutlineInputBorder(),
           ),
         ),
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: handleSubmitVerification,
-          child: const Text('Submit for Verification'),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _numberController,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Document Number',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    capturedImage = null;
+                    extractedData = null;
+                    _nameController.clear();
+                    _numberController.clear();
+                    currentStep = 'capture';
+                  });
+                },
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Retake'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isUploading ? null : handleSubmitVerification,
+                icon: const Icon(Icons.verified_user_outlined),
+                label: const Text('Submit'),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -460,7 +627,7 @@ class _GovernmentIdVerificationScreenState
         SizedBox(height: 8),
         Text(
           'This may take a few seconds.',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
+          style: TextStyle(fontSize: 12, color: WorkableDesign.muted),
         ),
       ],
     );
@@ -475,10 +642,10 @@ class _GovernmentIdVerificationScreenState
                 child: const Icon(
                   Icons.check_circle,
                   size: 64,
-                  color: Colors.green,
+                  color: WorkableDesign.success,
                 ),
               )
-            : const Icon(Icons.cancel, size: 64, color: Colors.redAccent),
+            : const Icon(Icons.cancel, size: 64, color: WorkableDesign.danger),
 
         const SizedBox(height: 12),
         Text(
@@ -492,7 +659,7 @@ class _GovernmentIdVerificationScreenState
           verificationStatus == 'success'
               ? 'Your ID has been verified.'
               : 'Please try again.',
-          style: const TextStyle(fontSize: 13, color: Colors.grey),
+          style: const TextStyle(fontSize: 13, color: WorkableDesign.muted),
         ),
         const SizedBox(height: 20),
         ElevatedButton(
@@ -527,10 +694,10 @@ class _GovernmentIdVerificationScreenState
                 CircleAvatar(
                   radius: 16,
                   backgroundColor: completed
-                      ? Colors.green
+                      ? WorkableDesign.success
                       : isActive
-                      ? Colors.blue
-                      : Colors.grey[300],
+                      ? WorkableDesign.primary
+                      : WorkableDesign.border,
                   child: completed
                       ? const Icon(Icons.check, size: 16, color: Colors.white)
                       : Text(
@@ -542,7 +709,9 @@ class _GovernmentIdVerificationScreenState
                   Expanded(
                     child: Container(
                       height: 2,
-                      color: completed ? Colors.green : Colors.grey[300],
+                      color: completed
+                          ? WorkableDesign.success
+                          : WorkableDesign.border,
                     ),
                   ),
               ],
@@ -553,8 +722,11 @@ class _GovernmentIdVerificationScreenState
     }
 
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text('Government ID Verification'),
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -578,12 +750,19 @@ class _GovernmentIdVerificationScreenState
 
               Row(
                 children: const [
-                  Icon(LucideIcons.shieldCheck, size: 18, color: Colors.green),
+                  Icon(
+                    LucideIcons.shieldCheck,
+                    size: 18,
+                    color: WorkableDesign.success,
+                  ),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       "Your documents are encrypted and stored securely.",
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: WorkableDesign.muted,
+                      ),
                     ),
                   ),
                 ],

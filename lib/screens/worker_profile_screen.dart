@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
+import '../core/theme/workable_design.dart';
 import '../widgets/star_rating.dart';
+import '../widgets/verification_tier_badge.dart';
+import 'chat_screen.dart';
 import 'booking_form_screen.dart';
 
 class WorkerProfileScreen extends StatefulWidget {
@@ -11,10 +15,10 @@ class WorkerProfileScreen extends StatefulWidget {
   final String name;
 
   const WorkerProfileScreen({
-    Key? key,
+    super.key,
     required this.workerId,
     required this.name,
-  }) : super(key: key);
+  });
 
   @override
   State<WorkerProfileScreen> createState() => _WorkerProfileScreenState();
@@ -23,13 +27,57 @@ class WorkerProfileScreen extends StatefulWidget {
 class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
   Map<String, dynamic>? workerData;
   List<Map<String, dynamic>> reviews = [];
+  List<Map<String, dynamic>> portfolioItems = [];
   bool isFavorited = false;
+  bool _favLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadWorkerData();
     _loadReviews();
+    _loadPortfolio();
+    _checkIfFavorited();
+  }
+
+  Future<void> _checkIfFavorited() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc = await FirebaseFirestore.instance
+        .collection('customers')
+        .doc(uid)
+        .collection('favoriteWorkers')
+        .doc(widget.workerId)
+        .get();
+    if (mounted) setState(() => isFavorited = doc.exists);
+  }
+
+  Future<void> _toggleFavorite() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    setState(() => _favLoading = true);
+
+    final ref = FirebaseFirestore.instance
+        .collection('customers')
+        .doc(uid)
+        .collection('favoriteWorkers')
+        .doc(widget.workerId);
+
+    if (isFavorited) {
+      await ref.delete();
+    } else {
+      await ref.set({
+        'workerId': widget.workerId,
+        'addedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        isFavorited = !isFavorited;
+        _favLoading = false;
+      });
+    }
   }
 
   Future<void> _loadWorkerData() async {
@@ -37,6 +85,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
         .collection('workers')
         .doc(widget.workerId)
         .get();
+    if (!mounted) return;
     if (doc.exists) {
       setState(() {
         workerData = doc.data();
@@ -49,11 +98,24 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
         .collection('reviews')
         .where('workerId', isEqualTo: widget.workerId)
         .get();
+    if (!mounted) return;
 
     setState(() {
-      reviews = snapshot.docs
-          .map((e) => e.data() as Map<String, dynamic>)
-          .toList();
+      reviews = snapshot.docs.map((e) => e.data()).toList();
+    });
+  }
+
+  Future<void> _loadPortfolio() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('workers')
+        .doc(widget.workerId)
+        .collection('portfolio')
+        .orderBy('createdAt', descending: true)
+        .get();
+    if (!mounted) return;
+
+    setState(() {
+      portfolioItems = snapshot.docs.map((e) => e.data()).toList();
     });
   }
 
@@ -65,18 +127,144 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
     return Color.fromARGB(255, r, g, b);
   }
 
+  Widget _buildFavoriteButton() {
+    return _favLoading
+        ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : IconButton(
+            onPressed: _toggleFavorite,
+            icon: Icon(
+              isFavorited ? Icons.favorite : Icons.favorite_border,
+              color: isFavorited ? WorkableDesign.danger : WorkableDesign.muted,
+            ),
+          );
+  }
+
+  String _workerName() {
+    final fullName = workerData?['fullName']?.toString().trim();
+    final name = workerData?['name']?.toString().trim();
+    if (fullName != null && fullName.isNotEmpty) return fullName;
+    if (name != null && name.isNotEmpty) return name;
+    return widget.name;
+  }
+
+  String? _workerImageUrl() {
+    final image = workerData?['profileImageUrl'] ?? workerData?['imageUrl'];
+    final text = image?.toString().trim();
+    return text == null || text.isEmpty || text.toLowerCase() == 'null'
+        ? null
+        : text;
+  }
+
+  List<String> _skills() {
+    return (workerData?['skills'] as List<dynamic>?)
+            ?.map((skill) => skill.toString().trim())
+            .where((skill) => skill.isNotEmpty)
+            .toList() ??
+        [];
+  }
+
+  String _primarySkill() {
+    final skills = _skills();
+    return skills.isNotEmpty ? skills.first : 'Service Provider';
+  }
+
+  String _pricingLabel([dynamic value]) {
+    final text = (value ?? workerData?['pricing'])?.toString().trim();
+    if (text == null || text.isEmpty || text.toLowerCase() == 'null') {
+      return 'Rate not set';
+    }
+    return text.contains('Rs') || text.contains('/hr') || text.contains('hour')
+        ? text
+        : 'Rs $text / hr';
+  }
+
+  String _aboutText() {
+    final about =
+        workerData?['about'] ??
+        workerData?['bio'] ??
+        workerData?['description'] ??
+        workerData?['professionalSummary'];
+    final text = about?.toString().trim();
+    if (text != null && text.isNotEmpty) return text;
+
+    final skill = _primarySkill().toLowerCase();
+    return 'Experienced $skill professional focused on reliable service, clear communication, and quality work.';
+  }
+
+  String _locationText() {
+    final parts =
+        [workerData?['area'], workerData?['city'], workerData?['pincode']]
+            .where((part) {
+              final text = part?.toString().trim();
+              return text != null &&
+                  text.isNotEmpty &&
+                  text.toLowerCase() != 'null';
+            })
+            .map((part) => part.toString().trim())
+            .toList();
+    return parts.isEmpty ? 'Service location available' : parts.join(', ');
+  }
+
+  String _tier() {
+    return workerData?['verification']?['tier']?.toString() ?? 'new';
+  }
+
+  bool _isVisibleToCustomers() => workerData?['visibleToUsers'] == true;
+
+  void _openBookingForm() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookingFormScreen(
+          workerId: widget.workerId,
+          workerName: _workerName(),
+        ),
+      ),
+    );
+  }
+
+  void _openChat() {
+    Navigator.pushNamed(
+      context,
+      ChatScreen.routeName,
+      arguments: {
+        'chatWithId': widget.workerId,
+        'chatWithName': _workerName(),
+        'userRole': 'customer',
+        'workerService': _primarySkill(),
+        'workerRating': (workerData?['averageRating'] as num?)?.toDouble(),
+      },
+    );
+  }
+
+  void _showContactUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Phone contact is not available yet.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (workerData == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: WorkableDesign.canvas,
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
+    final workerName = _workerName();
+    final imageUrl = _workerImageUrl();
+    final isAvailable = workerData!['isAvailable'] ?? false;
+
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Header with gradient background
-            // Simple top bar with back button only
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -87,8 +275,13 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back, color: Colors.black),
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        color: WorkableDesign.ink,
+                      ),
                     ),
+                    const Spacer(),
+                    _buildFavoriteButton(),
                   ],
                 ),
               ),
@@ -105,23 +298,20 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                     height: 100,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: workerData!['imageUrl'] == null
-                          ? _getColorFromName(
-                              workerData!['name'] ?? widget.name,
-                            )
+                      color: imageUrl == null
+                          ? _getColorFromName(workerName)
                           : Colors.transparent,
-
-                      // image: workerData!['imageUrl'] != null
-                      //     ? DecorationImage(
-                      //         image: NetworkImage(workerData!['imageUrl']),
-                      //         fit: BoxFit.cover,
-                      //       )
-                      //     : null,
+                      image: imageUrl != null
+                          ? DecorationImage(
+                              image: NetworkImage(imageUrl),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
                     alignment: Alignment.center,
-                    child: workerData!['imageUrl'] == null
+                    child: imageUrl == null
                         ? Text(
-                            _getInitials(workerData!['name'] ?? widget.name),
+                            _getInitials(workerName),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 32,
@@ -130,51 +320,63 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                           )
                         : null,
                   ),
-                  const SizedBox(height: 12),
-
                   const SizedBox(height: 16),
-                  // Name and title
+
+                  // Name
                   Text(
-                    workerData!['name'] ?? widget.name,
+                    workerName,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: WorkableDesign.ink,
                     ),
                   ),
                   const SizedBox(height: 4),
+
+                  // Skills as subtitle
                   Text(
-                    workerData!['services'] != null
-                        ? "Professional ${(workerData!['services'] as List).first}"
-                        : "Service Provider",
-                    style: const TextStyle(fontSize: 16, color: Colors.grey),
+                    _primarySkill(),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: WorkableDesign.muted,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  // Location and experience
+
+                  // Location and availability
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(
                         Icons.location_on,
                         size: 16,
-                        color: Colors.grey,
+                        color: WorkableDesign.muted,
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        workerData!['location'] != null
-                            ? "Downtown Area"
-                            : "Location available",
+                        _locationText(),
                         style: const TextStyle(
                           fontSize: 14,
-                          color: Colors.grey,
+                          color: WorkableDesign.muted,
                         ),
                       ),
                       const SizedBox(width: 16),
-                      const Icon(Icons.work, size: 16, color: Colors.grey),
+                      Icon(
+                        Icons.circle,
+                        size: 10,
+                        color: isAvailable
+                            ? WorkableDesign.success
+                            : WorkableDesign.muted,
+                      ),
                       const SizedBox(width: 4),
-                      const Text(
-                        "5+ years",
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      Text(
+                        isAvailable ? 'Available Now' : 'Unavailable',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isAvailable
+                              ? WorkableDesign.success
+                              : WorkableDesign.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -187,21 +389,21 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                       _buildStatCard(
                         icon: Icons.star,
                         iconColor: Colors.amber,
-                        value: (workerData!['averageRating'] ?? 0)
+                        value: (workerData!['averageRating'] ?? 0.0)
                             .toStringAsFixed(1),
                         label: "${reviews.length} reviews",
                       ),
                       _buildStatCard(
                         icon: Icons.check_circle,
-                        iconColor: Colors.green,
+                        iconColor: WorkableDesign.success,
                         value: "${workerData!['completedJobsCount'] ?? 0}",
                         label: "Jobs completed",
                       ),
                       _buildStatCard(
-                        icon: Icons.access_time,
-                        iconColor: Colors.blue,
-                        value: "2 hours",
-                        label: "Response time",
+                        icon: Icons.currency_rupee,
+                        iconColor: WorkableDesign.primary,
+                        value: _pricingLabel(),
+                        label: "Per hour",
                       ),
                     ],
                   ),
@@ -212,14 +414,24 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _buildBadge("Top Rated", Icons.star, Colors.amber),
-                      _buildBadge("Verified", Icons.verified, Colors.green),
+                      VerificationTierBadge(tier: _tier()),
+                      if (_isVisibleToCustomers())
+                        _buildBadge(
+                          "Customer Visible",
+                          Icons.visibility,
+                          WorkableDesign.success,
+                        ),
+                      if (isAvailable)
+                        _buildBadge(
+                          "Available",
+                          Icons.access_time,
+                          WorkableDesign.primary,
+                        ),
                       _buildBadge(
-                        "Fast Response",
-                        Icons.access_time,
-                        Colors.blue,
+                        _primarySkill(),
+                        Icons.work,
+                        WorkableDesign.accent,
                       ),
-                      _buildBadge("Expert", Icons.emoji_events, Colors.purple),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -229,24 +441,15 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                     children: [
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => BookingFormScreen(
-                                  workerId: widget.workerId,
-                                  workerName:
-                                      workerData!['name'] ?? widget.name,
-                                ),
-                              ),
-                            );
-                          },
+                          onPressed: _openBookingForm,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
+                            backgroundColor: WorkableDesign.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(
+                                WorkableDesign.radius,
+                              ),
                             ),
                           ),
                           child: const Text(
@@ -261,27 +464,33 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                       const SizedBox(width: 12),
                       Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: WorkableDesign.border),
+                          borderRadius: BorderRadius.circular(
+                            WorkableDesign.radius,
+                          ),
                         ),
                         child: IconButton(
-                          onPressed: () {
-                            // Phone functionality
-                          },
-                          icon: const Icon(Icons.phone, color: Colors.grey),
+                          onPressed: _showContactUnavailable,
+                          icon: const Icon(
+                            Icons.phone,
+                            color: WorkableDesign.muted,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: WorkableDesign.border),
+                          borderRadius: BorderRadius.circular(
+                            WorkableDesign.radius,
+                          ),
                         ),
                         child: IconButton(
-                          onPressed: () {
-                            // Message functionality
-                          },
-                          icon: const Icon(Icons.message, color: Colors.grey),
+                          onPressed: _openChat,
+                          icon: const Icon(
+                            Icons.message,
+                            color: WorkableDesign.muted,
+                          ),
                         ),
                       ),
                     ],
@@ -293,8 +502,11 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
+                      color: WorkableDesign.surface,
+                      borderRadius: BorderRadius.circular(
+                        WorkableDesign.radius,
+                      ),
+                      border: Border.all(color: WorkableDesign.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,17 +516,15 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black87,
+                            color: WorkableDesign.ink,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          "Professional service provider with years of experience. "
-                          "I take pride in delivering exceptional services with attention to detail. "
-                          "Fully insured and background checked for your peace of mind.",
+                          _aboutText(),
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey.shade700,
+                            color: WorkableDesign.muted,
                             height: 1.5,
                           ),
                         ),
@@ -325,36 +535,38 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
+                                  color: WorkableDesign.canvas,
+                                  borderRadius: BorderRadius.circular(
+                                    WorkableDesign.radius,
+                                  ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Row(
+                                    const Row(
                                       children: [
-                                        const Icon(
+                                        Icon(
                                           Icons.currency_rupee,
                                           size: 16,
-                                          color: Colors.grey,
+                                          color: WorkableDesign.muted,
                                         ),
-                                        const SizedBox(width: 4),
-                                        const Text(
+                                        SizedBox(width: 4),
+                                        Text(
                                           "Hourly Rate",
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.black87,
+                                            color: WorkableDesign.ink,
                                           ),
                                         ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      "₹${workerData!['pricing'] ?? '--'}/hour",
+                                      _pricingLabel(),
                                       style: const TextStyle(
                                         fontSize: 14,
-                                        color: Colors.grey,
+                                        color: WorkableDesign.muted,
                                       ),
                                     ),
                                   ],
@@ -366,36 +578,44 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
+                                  color: WorkableDesign.canvas,
+                                  borderRadius: BorderRadius.circular(
+                                    WorkableDesign.radius,
+                                  ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Row(
+                                    const Row(
                                       children: [
-                                        const Icon(
-                                          Icons.calendar_today,
+                                        Icon(
+                                          Icons.circle,
                                           size: 16,
-                                          color: Colors.grey,
+                                          color: WorkableDesign.success,
                                         ),
-                                        const SizedBox(width: 4),
-                                        const Text(
+                                        SizedBox(width: 4),
+                                        Text(
                                           "Availability",
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.black87,
+                                            color: WorkableDesign.ink,
                                           ),
                                         ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
-                                    const Text(
-                                      "Available Today",
+                                    Text(
+                                      (workerData!['isAvailable'] ?? false)
+                                          ? 'Available Now'
+                                          : 'Not Available',
                                       style: TextStyle(
                                         fontSize: 14,
-                                        color: Colors.green,
+                                        color:
+                                            (workerData!['isAvailable'] ??
+                                                false)
+                                            ? WorkableDesign.success
+                                            : WorkableDesign.muted,
                                       ),
                                     ),
                                   ],
@@ -409,59 +629,66 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // Services section
-                  if (workerData!['services'] != null) ...[
+                  if (_skills().isNotEmpty) ...[
+                    _buildServicesOfferedSection(),
+                    const SizedBox(height: 32),
+                  ],
+
+                  // Skills & Pricing section (from wageMap)
+                  if (workerData!['wageMap'] != null) ...[
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        "Services",
+                        "Services & Pricing",
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          color: WorkableDesign.ink,
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    ...((workerData!['services'] as List).map<Widget>((
-                      service,
-                    ) {
-                      return Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                    ...(workerData!['wageMap'] as Map<String, dynamic>).entries
+                        .map<Widget>((entry) {
+                          return Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: WorkableDesign.surface,
+                              borderRadius: BorderRadius.circular(
+                                WorkableDesign.radius,
+                              ),
+                              border: Border.all(color: WorkableDesign.border),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  service.toString(),
+                                  entry.key,
                                   style: const TextStyle(
-                                    fontSize: 16,
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
+                                    color: WorkableDesign.ink,
                                   ),
                                 ),
                                 Text(
-                                  "₹${workerData!['pricing'] ?? '--'}/hour",
+                                  _pricingLabel(entry.value),
                                   style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: WorkableDesign.primary,
                                   ),
                                 ),
                               ],
                             ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
-                          ],
-                        ),
-                      );
-                    }).toList()),
+                          );
+                        }),
+                    const SizedBox(height: 32),
+                  ],
+
+                  if (portfolioItems.isNotEmpty) ...[
+                    _buildPortfolioSection(),
                     const SizedBox(height: 32),
                   ],
 
@@ -473,7 +700,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black87,
+                        color: WorkableDesign.ink,
                       ),
                     ),
                   ),
@@ -483,13 +710,16 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(24),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(12),
+                            color: WorkableDesign.surface,
+                            borderRadius: BorderRadius.circular(
+                              WorkableDesign.radius,
+                            ),
+                            border: Border.all(color: WorkableDesign.border),
                           ),
                           child: const Text(
                             "No reviews yet.",
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
+                            style: TextStyle(color: WorkableDesign.muted),
                           ),
                         )
                       : Column(
@@ -501,7 +731,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                               decoration: BoxDecoration(
                                 border: Border(
                                   bottom: BorderSide(
-                                    color: Colors.grey.shade200,
+                                    color: WorkableDesign.border,
                                   ),
                                 ),
                               ),
@@ -521,14 +751,14 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                                             style: TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600,
-                                              color: Colors.black87,
+                                              color: WorkableDesign.ink,
                                             ),
                                           ),
                                           Text(
                                             "2 days ago",
                                             style: TextStyle(
                                               fontSize: 12,
-                                              color: Colors.grey,
+                                              color: WorkableDesign.muted,
                                             ),
                                           ),
                                         ],
@@ -544,7 +774,7 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                                     review['review'] ?? '',
                                     style: TextStyle(
                                       fontSize: 14,
-                                      color: Colors.grey.shade700,
+                                      color: WorkableDesign.muted,
                                     ),
                                   ),
                                 ],
@@ -580,13 +810,16 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                color: WorkableDesign.ink,
               ),
             ),
           ],
         ),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: WorkableDesign.muted),
+        ),
       ],
     );
   }
@@ -595,8 +828,9 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -609,6 +843,159 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
               fontSize: 12,
               fontWeight: FontWeight.w500,
               color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServicesOfferedSection() {
+    final serviceRadius =
+        workerData?['serviceRadiusKm'] ?? workerData?['serviceRadius'];
+    final radiusText = serviceRadius == null
+        ? null
+        : '${serviceRadius.toString()} km service radius';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: WorkableDesign.surface,
+        border: Border.all(color: WorkableDesign.border),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Services Offered',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: WorkableDesign.ink,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _skills()
+                .map(
+                  (skill) => Chip(
+                    label: Text(skill),
+                    backgroundColor: WorkableDesign.primary.withValues(
+                      alpha: 0.08,
+                    ),
+                    side: BorderSide(
+                      color: WorkableDesign.primary.withValues(alpha: 0.18),
+                    ),
+                    labelStyle: TextStyle(color: WorkableDesign.primary),
+                  ),
+                )
+                .toList(),
+          ),
+          if (radiusText != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.my_location_outlined,
+                  size: 16,
+                  color: WorkableDesign.muted,
+                ),
+                const SizedBox(width: 6),
+                Text(radiusText, style: TextStyle(color: WorkableDesign.muted)),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPortfolioSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Portfolio',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: WorkableDesign.ink,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Recent work samples uploaded by this professional.',
+          style: TextStyle(color: WorkableDesign.muted),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 220,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: portfolioItems.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              return _buildPortfolioCard(portfolioItems[index]);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPortfolioCard(Map<String, dynamic> item) {
+    final imageUrl = item['imageUrl']?.toString() ?? '';
+    final title = item['title']?.toString() ?? 'Work sample';
+    final description = item['description']?.toString() ?? '';
+
+    return Container(
+      width: 250,
+      decoration: BoxDecoration(
+        color: WorkableDesign.surface,
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        border: Border.all(color: WorkableDesign.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 125,
+            width: double.infinity,
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: WorkableDesign.canvas,
+                child: const Icon(Icons.broken_image_outlined),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: WorkableDesign.muted, fontSize: 12),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

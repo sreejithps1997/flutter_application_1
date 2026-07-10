@@ -1,14 +1,14 @@
-// Keep all your imports unchanged
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:flutter/foundation.dart'; // for consolidateHttpClientResponseBytes
+import 'package:flutter/foundation.dart';
+import '../core/theme/workable_design.dart';
+import '../models/verification_documents.dart';
+import '../services/identity_verification_service.dart';
+import '../widgets/workable_ui.dart';
 
 class AddressVerificationScreen extends StatefulWidget {
   static const routeName = '/address-verification';
@@ -23,8 +23,12 @@ class AddressVerificationScreen extends StatefulWidget {
 class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
   String? selectedDocType;
   String verificationStatus = 'pending';
+  String? rejectionReason;
   File? pickedImage;
   bool isLoading = false;
+  bool hasSubmittedDocument = false;
+  final IdentityVerificationService _verificationService =
+      IdentityVerificationService();
 
   final documentTypes = [
     {
@@ -72,25 +76,20 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
   }
 
   Future<void> _loadVerificationStatus() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    final data = await _verificationService.loadVerificationStatus(
+      VerificationDocuments.addressProof.documentId,
+    );
 
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('identityVerification')
-        .doc('address')
-        .get();
-
-    if (doc.exists) {
-      final data = doc.data();
-      final status = data?['status'] ?? 'pending';
-      final type = data?['type'];
-      final imageUrl = data?['imageUrl'];
+    if (data != null) {
+      final status = data['status'] ?? 'pending';
+      final type = data['type'];
+      final imageUrl = data['imageUrl'];
+      final rejectionReason = data['rejectionReason'];
 
       setState(() {
         verificationStatus = status;
         selectedDocType = type;
+        this.rejectionReason = rejectionReason;
       });
 
       // ✅ Load the uploaded image from URL into pickedImage
@@ -106,6 +105,7 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
 
           setState(() {
             pickedImage = file;
+            hasSubmittedDocument = true;
           });
         } catch (e) {
           debugPrint("Failed to load uploaded image: $e");
@@ -126,67 +126,48 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
     if (picked != null) {
       setState(() {
         pickedImage = File(picked.path);
+        hasSubmittedDocument = false;
       });
-      _uploadImage();
     }
   }
 
   Future<void> _uploadImage() async {
     if (pickedImage == null || selectedDocType == null) return;
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be signed in to upload.')),
-      );
-      return;
-    }
-
-    final uid = user.uid;
-    final fileName = 'address_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
     setState(() {
       isLoading = true;
     });
 
     try {
-      final ref = FirebaseStorage.instance.ref().child(
-        'users/$uid/addressVerification/$fileName',
+      await _verificationService.submitVerificationDocument(
+        config: VerificationDocuments.addressProof,
+        uploadMethod: 'file',
+        imageFile: pickedImage,
+        fields: {'type': selectedDocType},
       );
 
-      final uploadTask = ref.putFile(pickedImage!);
-      await uploadTask.whenComplete(() {});
-      final imageUrl = await ref.getDownloadURL();
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('identityVerification')
-          .doc('address')
-          .set({
-            'type': selectedDocType,
-            'imageUrl': imageUrl,
-            'status': 'reviewing',
-            'submittedAt': FieldValue.serverTimestamp(),
-          });
-
       setState(() {
-        verificationStatus = 'reviewing';
+        verificationStatus = 'pending';
+        hasSubmittedDocument = true;
       });
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Document uploaded successfully!')),
+        const SnackBar(content: Text('Document uploaded for review.')),
       );
 
       await _loadVerificationStatus(); // re-fetch updated status
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('❌ Upload failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -198,21 +179,21 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
     String title, message, timeframe;
 
     switch (verificationStatus) {
-      case 'success':
+      case 'verified':
         icon = LucideIcons.checkCircle;
         color = Colors.green;
         title = 'Address Verified!';
         message = 'Your address has been successfully verified';
         timeframe = 'Completed just now';
         break;
-      case 'failed':
+      case 'rejected':
         icon = LucideIcons.alertCircle;
         color = Colors.red;
         title = 'Verification Failed';
-        message = 'Document image is unclear. Please upload a clearer image';
+        message = rejectionReason ?? 'Please upload a valid document';
         timeframe = 'Try uploading again';
         break;
-      case 'reviewing':
+      case 'pending':
         icon = LucideIcons.eye;
         color = Colors.blue;
         title = 'Under Review';
@@ -230,9 +211,9 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        border: Border.all(color: color.withOpacity(0.2)),
-        borderRadius: BorderRadius.circular(12),
+        color: color.withValues(alpha: 0.06),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,7 +238,7 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
                     fontStyle: FontStyle.italic,
                   ),
                 ),
-                if (verificationStatus == 'failed') ...[
+                if (verificationStatus == 'rejected') ...[
                   const SizedBox(height: 8),
                   TextButton(
                     onPressed: () => _pickImage(ImageSource.gallery),
@@ -451,21 +432,32 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
 
               if (isLoading)
                 const CircularProgressIndicator()
-              else if (pickedImage != null &&
-                  verificationStatus == 'reviewing') ...[
+              else if (pickedImage != null && hasSubmittedDocument) ...[
                 ElevatedButton.icon(
                   icon: const Icon(Icons.check_circle, color: Colors.white),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: WorkableDesign.success,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
                   onPressed: () {}, // Optional: Show details or confirmation
-                  label: const Text("Document Uploaded Successfully"),
+                  label: const Text("Document Uploaded"),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.edit, size: 16),
                   label: const Text("Re-upload"),
+                  onPressed: () => _pickImage(ImageSource.gallery),
+                ),
+              ] else if (pickedImage != null) ...[
+                FilledButton.icon(
+                  icon: const Icon(LucideIcons.uploadCloud),
+                  label: const Text("Submit for Review"),
+                  onPressed: _uploadImage,
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(LucideIcons.refreshCw, size: 16),
+                  label: const Text("Choose Different File"),
                   onPressed: () => _pickImage(ImageSource.gallery),
                 ),
               ] else ...[
@@ -533,28 +525,21 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
 
   PreferredSizeWidget _buildHeader() {
     return AppBar(
-      backgroundColor: Colors.white,
-      elevation: 0.5,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back, color: Colors.grey),
+        icon: const Icon(LucideIcons.arrowLeft),
         onPressed: () => Navigator.pop(context),
       ),
       title: const Text(
         'Address Verification',
-        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        style: TextStyle(fontWeight: FontWeight.w800),
       ),
-      actions: const [
-        Padding(
-          padding: EdgeInsets.only(right: 12),
-          child: Icon(LucideIcons.helpCircle, color: Colors.grey),
-        ),
-      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       appBar: _buildHeader(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -562,6 +547,13 @@ class _AddressVerificationScreenState extends State<AddressVerificationScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           child: Column(
             children: [
+              const WorkablePageHeader(
+                title: 'Address trust check',
+                subtitle:
+                    'Upload a current proof of address so bookings, invoices, and worker/customer trust stay reliable.',
+                icon: LucideIcons.mapPin,
+              ),
+              const SizedBox(height: 16),
               _buildStatusCard(),
               const SizedBox(height: 20),
               _buildVerificationSteps(),

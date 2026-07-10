@@ -1,17 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../core/theme/workable_design.dart';
 import 'customer_booking_detail_screen.dart';
 import 'customer_booking_review_screen.dart';
 import '../services/booking_flow.dart';
-import '../utils/string_utils.dart';
+import '../widgets/booking_status_timeline.dart';
+import '../widgets/workable_ui.dart';
 
 class CustomerBookingsScreen extends StatefulWidget {
   static const routeName = '/customer-bookings';
   // Also support booking history route
   static const bookingHistoryRoute = '/customer/booking-history';
 
-  const CustomerBookingsScreen({super.key});
+  //const CustomerBookingsScreen({super.key});
+  final int initialTab;
+  const CustomerBookingsScreen({super.key, this.initialTab = 0});
 
   @override
   State<CustomerBookingsScreen> createState() => _CustomerBookingsScreenState();
@@ -25,7 +29,12 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
   }
 
   @override
@@ -37,21 +46,18 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
   @override
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid;
-    print("Current UID: ${FirebaseAuth.instance.currentUser?.uid}");
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text("My Bookings"),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        centerTitle: true,
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.deepPurple,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.deepPurple,
+          labelColor: WorkableDesign.primary,
+          unselectedLabelColor: WorkableDesign.muted,
+          indicatorColor: WorkableDesign.primary,
           tabs: const [
             Tab(icon: Icon(Icons.access_time), text: "Active"),
             Tab(icon: Icon(Icons.check_circle_outline), text: "Completed"),
@@ -63,6 +69,20 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
           ? _buildLoginPrompt()
           : Column(
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: WorkablePageHeader(
+                    title: 'Track every job',
+                    subtitle:
+                        'Review active work, payment progress, completed services, and past booking history.',
+                    icon: Icons.event_note_outlined,
+                    trailing: IconButton.filledTonal(
+                      tooltip: 'Refresh',
+                      onPressed: () => setState(() {}),
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ),
+                ),
                 _buildFilterSection(),
                 Expanded(
                   child: TabBarView(
@@ -84,27 +104,10 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
   }
 
   Widget _buildLoginPrompt() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.login, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            const Text(
-              "Please log in",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "You need to log in to view your bookings.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
+    return WorkableEmptyState(
+      icon: Icons.login,
+      title: 'Please log in',
+      message: 'You need to log in to view your bookings.',
     );
   }
 
@@ -152,10 +155,18 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
                       _selectedFilter = service;
                     });
                   },
-                  selectedColor: Colors.deepPurple.withOpacity(0.2),
-                  checkmarkColor: Colors.deepPurple,
+                  selectedColor: WorkableDesign.primary.withValues(alpha: 0.1),
+                  checkmarkColor: WorkableDesign.primary,
+                  backgroundColor: WorkableDesign.surface,
+                  side: BorderSide(
+                    color: isSelected
+                        ? WorkableDesign.primary.withValues(alpha: 0.35)
+                        : WorkableDesign.border,
+                  ),
                   labelStyle: TextStyle(
-                    color: isSelected ? Colors.deepPurple : Colors.grey[700],
+                    color: isSelected
+                        ? WorkableDesign.primary
+                        : WorkableDesign.ink,
                     fontWeight: isSelected
                         ? FontWeight.w600
                         : FontWeight.normal,
@@ -227,27 +238,10 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
   }
 
   Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            const Text(
-              "Something went wrong",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Unable to load your bookings.\nPlease try again later.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
+    return const WorkableEmptyState(
+      icon: Icons.error_outline,
+      title: 'Something went wrong',
+      message: 'Unable to load your bookings. Please try again later.',
     );
   }
 
@@ -269,44 +263,12 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
       }
     }
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              description,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(context, '/book-service');
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-              ),
-              child: const Text(
-                "Book a Service",
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return WorkableEmptyState(
+      icon: icon,
+      title: title,
+      message: description,
+      actionLabel: 'Book a Service',
+      onAction: () => Navigator.pushNamed(context, '/book-service'),
     );
   }
 
@@ -461,8 +423,8 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
         booking['serviceType'] ?? booking['issue'] ?? 'Service Request';
     final workerName = (booking['workerName'] ?? '').toString().trim();
     final status = (booking['status'] ?? 'Unknown').toString();
-    final amount = (booking['totalAmount'] ?? booking['amount'] ?? 0.0) as num;
-    Future<void> _precheckThenOpenDetails() async {
+    final amount = _readAmount(booking['totalAmount'] ?? booking['amount']);
+    Future<void> precheckThenOpenDetails() async {
       final workerId = (booking['workerId'] as String?)?.trim();
 
       if (workerId != null && workerId.isNotEmpty) {
@@ -472,7 +434,7 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
               .doc(workerId)
               .get();
 
-          if (!mounted) return; // <— guard
+          if (!context.mounted) return;
 
           final worker = snap.data();
           final eligible = BookingFlow.isWorkerEligible(worker);
@@ -487,18 +449,18 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
             );
           }
         } catch (_) {
-          if (!mounted) return; // <— guard
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Could not verify worker availability. Opening details…',
+                'Could not verify worker availability. Opening details...',
               ),
             ),
           );
         }
       }
 
-      if (!mounted) return; // <— guard
+      if (!context.mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -507,82 +469,89 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
       );
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 2,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: WorkableDesign.cardDecoration(),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => BookingFlow.openBookingDetailsStrict(context, booking),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        onTap: precheckThenOpenDetails,
         child: Column(
           children: [
-            ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _getServiceColor(serviceType).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  _getServiceIcon(serviceType),
-                  color: _getServiceColor(serviceType),
-                  size: 24,
-                ),
-              ),
-              title: Text(
-                serviceType,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Column(
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 6),
-                  if (workerName.isNotEmpty)
-                    Text(
-                      "Worker: $workerName",
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  const SizedBox(height: 4),
-                  Text("Date: ${booking['preferredDate'] ?? 'N/A'}"),
-                  Text("Time: ${booking['preferredTime'] ?? 'N/A'}"),
-                  if (amount > 0) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      "Amount: ₹${amount.toStringAsFixed(0)}",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("Status: "),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
-                          color: _statusColor(status),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          _getStatusText(status),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                          color: _getServiceColor(
+                            serviceType,
+                          ).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(
+                            WorkableDesign.radius,
                           ),
                         ),
+                        child: Icon(
+                          _getServiceIcon(serviceType),
+                          color: _getServiceColor(serviceType),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              serviceType,
+                              style: const TextStyle(
+                                color: WorkableDesign.ink,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            WorkableStatusPill(
+                              label: _getStatusText(status),
+                              color: _statusColor(status),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: WorkableDesign.muted,
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  if (workerName.isNotEmpty)
+                    WorkableInfoRow(
+                      icon: Icons.engineering_outlined,
+                      text: 'Worker: $workerName',
+                    ),
+                  WorkableInfoRow(
+                    icon: Icons.calendar_today_outlined,
+                    text: 'Date: ${booking['preferredDate'] ?? 'N/A'}',
+                  ),
+                  WorkableInfoRow(
+                    icon: Icons.schedule_outlined,
+                    text: 'Time: ${booking['preferredTime'] ?? 'N/A'}',
+                  ),
+                  if (amount > 0)
+                    WorkableInfoRow(
+                      icon: Icons.payments_outlined,
+                      text: 'Amount: Rs ${amount.toStringAsFixed(0)}',
+                    ),
+                  const SizedBox(height: 12),
+                  BookingStatusTimeline(status: status, compact: true),
                 ],
               ),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             ),
 
             // Quick actions for completed bookings (unchanged)
@@ -593,10 +562,10 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: WorkableDesign.canvas,
                   borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
+                    bottomLeft: Radius.circular(WorkableDesign.radius),
+                    bottomRight: Radius.circular(WorkableDesign.radius),
                   ),
                 ),
                 child: Row(
@@ -610,8 +579,8 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
                           style: TextStyle(fontSize: 12),
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.deepPurple,
-                          side: const BorderSide(color: Colors.deepPurple),
+                          foregroundColor: WorkableDesign.primary,
+                          side: const BorderSide(color: WorkableDesign.border),
                         ),
                       ),
                     ),
@@ -625,10 +594,53 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
                           style: TextStyle(fontSize: 12),
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange,
-                          side: const BorderSide(color: Colors.orange),
+                          foregroundColor: WorkableDesign.warning,
+                          side: const BorderSide(color: WorkableDesign.border),
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (status.toLowerCase() == 'completion_requested') ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: WorkableDesign.warning.withValues(alpha: 0.08),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(WorkableDesign.radius),
+                    bottomRight: Radius.circular(WorkableDesign.radius),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.help_outline,
+                      color: WorkableDesign.warning,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        "Confirm if the work is completed",
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                CustomerBookingDetailScreen(booking: booking),
+                          ),
+                        );
+                      },
+                      child: const Text("Review"),
                     ),
                   ],
                 ),
@@ -645,26 +657,31 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
     if (type.contains('plumb')) return Icons.plumbing;
     if (type.contains('electric')) return Icons.electrical_services;
     if (type.contains('carpen') || type.contains('wood')) return Icons.handyman;
-    if (type.contains('child') || type.contains('care'))
+    if (type.contains('child') || type.contains('care')) {
       return Icons.child_care;
-    if (type.contains('maid') || type.contains('clean'))
+    }
+    if (type.contains('maid') || type.contains('clean')) {
       return Icons.cleaning_services;
+    }
     if (type.contains('cook') || type.contains('food')) return Icons.restaurant;
-    if (type.contains('laund') || type.contains('wash'))
+    if (type.contains('laund') || type.contains('wash')) {
       return Icons.local_laundry_service;
+    }
     return Icons.home_repair_service;
   }
 
   Color _getServiceColor(String serviceType) {
     final type = serviceType.toLowerCase();
-    if (type.contains('plumb')) return Colors.blue;
-    if (type.contains('electric')) return Colors.amber;
-    if (type.contains('carpen')) return Colors.brown;
-    if (type.contains('child')) return Colors.pink;
-    if (type.contains('maid')) return Colors.purple;
-    if (type.contains('cook')) return Colors.orange;
-    if (type.contains('laund')) return Colors.cyan;
-    return Colors.grey;
+    if (type.contains('plumb')) return WorkableDesign.primary;
+    if (type.contains('electric')) return WorkableDesign.warning;
+    if (type.contains('carpen')) return WorkableDesign.accent;
+    if (type.contains('child')) return const Color(0xFFDB2777);
+    if (type.contains('maid') || type.contains('clean')) {
+      return WorkableDesign.success;
+    }
+    if (type.contains('cook')) return const Color(0xFFEA580C);
+    if (type.contains('laund')) return const Color(0xFF0891B2);
+    return WorkableDesign.muted;
   }
 
   String _getStatusText(String status) {
@@ -677,6 +694,16 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
         return 'In Progress';
       case 'completed':
         return 'Completed';
+      case 'completion_requested':
+        return 'Confirm Work?';
+      case 'payment_due':
+        return 'Payment Due';
+      case 'payment_initiated':
+        return 'Payment Started';
+      case 'payment_under_review':
+        return 'Payment Review';
+      case 'completion_disputed':
+        return 'Issue Reported';
       case 'cancelled':
         return 'Cancelled';
       default:
@@ -687,18 +714,32 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen>
   Color _statusColor(String? status) {
     switch (status?.toLowerCase()) {
       case 'confirmed':
-        return Colors.green;
+        return WorkableDesign.success;
       case 'pending':
-        return Colors.orange;
+        return WorkableDesign.warning;
       case 'in_progress':
-        return Colors.blue;
+        return WorkableDesign.primary;
       case 'completed':
-        return Colors.green.shade600;
+        return WorkableDesign.success;
+      case 'completion_requested':
+        return WorkableDesign.warning;
+      case 'payment_due':
+      case 'payment_initiated':
+      case 'payment_under_review':
+        return WorkableDesign.primary;
+      case 'completion_disputed':
+        return WorkableDesign.danger;
       case 'cancelled':
-        return Colors.red;
+        return WorkableDesign.danger;
       default:
-        return Colors.grey;
+        return WorkableDesign.muted;
     }
+  }
+
+  num _readAmount(dynamic value) {
+    if (value is num) return value;
+    if (value is String) return num.tryParse(value) ?? 0;
+    return 0;
   }
 
   void _rateService(Map<String, dynamic> booking) {

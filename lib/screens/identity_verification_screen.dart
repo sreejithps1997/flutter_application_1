@@ -4,38 +4,48 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../widgets/custom_button.dart';
 import 'dart:async';
-import 'dart:io';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:path/path.dart' as path;
-import 'background_check_screen.dart';
-import 'government_id_verification_screen.dart';
+import '../core/theme/workable_design.dart';
 import 'pan_card_verification_screen.dart';
-import 'phone_verification_screen.dart';
-
+import 'address_verification_screen.dart';
 import '../services/verification_tier_manager.dart';
+import '../services/notification_service.dart';
+import '../services/worker_visibility_service.dart';
 
 class IdentityVerificationScreen extends StatefulWidget {
   static const routeName = '/identity-verification';
-
   const IdentityVerificationScreen({super.key});
-
   @override
   State<IdentityVerificationScreen> createState() =>
       _IdentityVerificationScreenState();
 }
 
-class _IdentityVerificationScreenState
-    extends State<IdentityVerificationScreen> {
-  Map<String, String> statuses = {};
+class _IdentityVerificationScreenState extends State<IdentityVerificationScreen>
+    with SingleTickerProviderStateMixin {
+  Map<String, Map<String, dynamic>> verificationData = {};
   bool isLoading = true;
   String? userPhone;
   String? userEmail;
+  bool isPhoneVerified = false;
   String? currentTier;
   int _completedSteps = 0;
-  int _totalSteps = 5;
+  final int _totalSteps = 6;
   String _userTier = 'new';
   StreamSubscription<QuerySnapshot>? _statusSubscription;
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _verificationItemKeys = {
+    'aadhaar': GlobalKey(),
+    'pan': GlobalKey(),
+    'addressProof': GlobalKey(),
+    'selfie': GlobalKey(),
+    'phone': GlobalKey(),
+    'email': GlobalKey(),
+    'backgroundCheck': GlobalKey(),
+  };
+  late final AnimationController _focusPulseController;
+  late final Animation<double> _focusPulseAnimation;
+  String? _requestedFocusKey;
+  String? _highlightedKey;
+  bool _didHandleInitialFocus = false;
 
   void _calculateTierProgress(Map<String, String> status) {
     _completedSteps = 0;
@@ -46,16 +56,43 @@ class _IdentityVerificationScreenState
       status['passport'],
       status['voter'],
       status['driving_license'],
-    ].contains('verified'))
+    ].contains('verified')) {
       _completedSteps++;
+    }
     if (status['pan'] == 'verified') _completedSteps++;
-    if (status['addressProof'] == 'verified' || status['address'] == 'verified')
+    if (status['addressProof'] == 'verified' ||
+        status['address'] == 'verified') {
       _completedSteps++;
+    }
     if (status['phone'] == 'verified') _completedSteps++;
-
     _userTier = VerificationTierManager().determineTierFromStatus(status);
   }
 
+  // void _startVerificationStatusListener() {
+  //   final uid = FirebaseAuth.instance.currentUser?.uid;
+  //   if (uid == null) return;
+
+  //   _statusSubscription = FirebaseFirestore.instance
+  //       .collection('users')
+  //       .doc(uid)
+  //       .collection('identityVerification')
+  //       .snapshots()
+  //       .listen((snapshot) {
+  //         final updatedStatuses = <String, String>{};
+  //         for (var doc in snapshot.docs) {
+  //           final key = doc.id;
+  //           final data = doc.data();
+  //           if (data.containsKey('status')) {
+  //             updatedStatuses[key] = data['status'].toString();
+  //           }
+  //         }
+
+  //         setState(() {
+  //           statuses = updatedStatuses;
+  //           _calculateTierProgress(updatedStatuses);
+  //         });
+  //       });
+  // }
   void _startVerificationStatusListener() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -66,19 +103,25 @@ class _IdentityVerificationScreenState
         .collection('identityVerification')
         .snapshots()
         .listen((snapshot) {
-          final updatedStatuses = <String, String>{};
+          final updatedVerificationData = <String, Map<String, dynamic>>{};
+
+          final extractedStatuses = <String, String>{};
+
           for (var doc in snapshot.docs) {
             final key = doc.id;
             final data = doc.data();
-            if (data.containsKey('status')) {
-              updatedStatuses[key] = data['status'].toString();
-            }
+
+            updatedVerificationData[key] = data;
+
+            extractedStatuses[key] = data['status']?.toString() ?? 'incomplete';
           }
 
           setState(() {
-            statuses = updatedStatuses;
-            _calculateTierProgress(updatedStatuses);
+            verificationData = updatedVerificationData;
+            _calculateTierProgress(extractedStatuses);
           });
+
+          WorkerVisibilityService().syncWorkerVisibility(uid);
         });
   }
 
@@ -94,109 +137,50 @@ class _IdentityVerificationScreenState
           runSpacing: 16,
           children: [
             ListTile(
-              leading: const Icon(Icons.insert_drive_file, color: Colors.blue),
+              leading: const Icon(Icons.badge, color: WorkableDesign.primary),
+              title: const Text('Verify Government ID'),
+              onTap: () {
+                Navigator.pop(context);
+                _openVerificationDestination('aadhaar');
+              },
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.insert_drive_file,
+                color: WorkableDesign.primary,
+              ),
               title: const Text('Upload PAN Card'),
               onTap: () {
                 Navigator.pop(context);
-                _pickAndUploadImage('pan', 'pan_card.jpg');
+                _openVerificationDestination('pan');
               },
             ),
             ListTile(
-              leading: const Icon(Icons.home_work, color: Colors.teal),
+              leading: const Icon(
+                Icons.home_work,
+                color: WorkableDesign.accent,
+              ),
               title: const Text('Upload Address Proof'),
               onTap: () {
                 Navigator.pop(context);
-                _pickAndUploadImage('addressProof', 'address_proof.jpg');
+                _openVerificationDestination('addressProof');
               },
             ),
             ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.orange),
+              leading: const Icon(
+                Icons.camera_alt,
+                color: WorkableDesign.warning,
+              ),
               title: const Text('Take Selfie'),
               onTap: () {
                 Navigator.pop(context);
-                _captureAndUploadSelfie();
+                _openVerificationDestination('selfie');
               },
             ),
           ],
         ),
       ),
     );
-  }
-
-  final ImagePicker _picker = ImagePicker();
-
-  Future<void> _pickAndUploadImage(String fieldKey, String fileName) async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-
-    // Safely get the current user. If not logged in, simply return.
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      print('❌ Cannot upload image: no authenticated user.');
-      return;
-    }
-    final uid = user.uid;
-
-    final file = File(picked.path);
-    final storageRef = FirebaseStorage.instance.ref().child(
-      'identity_verification/$uid/$fileName',
-    );
-
-    await storageRef.putFile(file);
-    final downloadUrl = await storageRef.getDownloadURL();
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('identityVerification')
-        .doc(fieldKey)
-        .set({
-          'status': 'pending',
-          'fileUrl': downloadUrl,
-          'submittedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-    // Refresh status after upload
-    _loadVerificationStatus();
-  }
-
-  Future<void> _captureAndUploadSelfie() async {
-    final picked = await _picker.pickImage(source: ImageSource.camera);
-    if (picked == null) return;
-
-    // Safely get the current user. If not logged in, simply return.
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      print('❌ Cannot upload selfie: no authenticated user.');
-      return;
-    }
-    final uid = user.uid;
-
-    final file = File(picked.path);
-    final storageRef = FirebaseStorage.instance.ref().child(
-      'identity_verification/$uid/selfie.jpg',
-    );
-
-    await storageRef.putFile(file);
-    final downloadUrl = await storageRef.getDownloadURL();
-
-    // Update the status and file reference in Firestore
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('identityVerification')
-        .doc('status')
-        .set({'selfie': 'pending'}, SetOptions(merge: true));
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('identityVerification')
-        .doc('files')
-        .set({'selfie': downloadUrl}, SetOptions(merge: true));
-
-    // Refresh status after upload
-    _loadVerificationStatus();
   }
 
   final List<Map<String, dynamic>> verificationItems = [
@@ -225,11 +209,12 @@ class _IdentityVerificationScreenState
       'subtitle': 'Take a clear selfie for identity matching',
       'onTap': true, // custom flag to identify interactive item
     },
+
     {
-      'key': 'backgroundCheck',
-      'icon': LucideIcons.shield,
-      'title': 'Background Check',
-      'subtitle': 'Police verification certificate',
+      'key': 'policeCertificate',
+      'icon': LucideIcons.shieldCheck,
+      'title': 'Police Clearance Certificate',
+      'subtitle': 'Optional trust & safety verification',
       'isRequired': false,
     },
   ];
@@ -237,15 +222,74 @@ class _IdentityVerificationScreenState
   @override
   void initState() {
     super.initState();
+    _focusPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+    _focusPulseAnimation = CurvedAnimation(
+      parent: _focusPulseController,
+      curve: Curves.easeInOut,
+    );
     _safeLoadStatus();
     _fetchVerificationTier();
     _startVerificationStatusListener();
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid != null) {
+      NotificationService.markSuccessNotificationsAsRead(uid: uid);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['focusKey'] is String) {
+      _requestedFocusKey = args['focusKey'] as String;
+    }
   }
 
   @override
   void dispose() {
     _statusSubscription?.cancel();
+    _focusPulseController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleInitialFocusIfNeeded() {
+    if (_didHandleInitialFocus || isLoading || _requestedFocusKey == null) {
+      return;
+    }
+    _didHandleInitialFocus = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusVerificationItem(_requestedFocusKey!);
+    });
+  }
+
+  Future<void> _focusVerificationItem(String key) async {
+    final targetContext = _verificationItemKeys[key]?.currentContext;
+    if (targetContext == null || !mounted) return;
+
+    await Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeOutCubic,
+      alignment: 0.22,
+    );
+
+    if (!mounted) return;
+    setState(() => _highlightedKey = key);
+    _focusPulseController
+      ..reset()
+      ..repeat(reverse: true);
+
+    await Future.delayed(const Duration(milliseconds: 1800));
+    if (!mounted) return;
+    _focusPulseController.stop();
+    _focusPulseController.reset();
+    setState(() => _highlightedKey = null);
   }
 
   Future<void> _fetchVerificationTier() async {
@@ -262,8 +306,8 @@ class _IdentityVerificationScreenState
     try {
       await _loadVerificationStatus();
     } catch (e, stack) {
-      print('❌ Error loading verification status: $e');
-      print(stack); // will help pinpoint Firestore/logic errors
+      debugPrint('Error loading verification status: $e');
+      debugPrint(stack.toString());
     }
   }
 
@@ -275,13 +319,13 @@ class _IdentityVerificationScreenState
       // Safely retrieve the current user. If no user is logged in, exit early.
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        print('❌ No authenticated user found.');
+        debugPrint('No authenticated user found.');
         setState(() => isLoading = false);
         return;
       }
 
       final uid = user.uid;
-      print("🔍 Fetching user data for UID: $uid");
+      debugPrint('Fetching user data for UID: $uid');
 
       // Fetch the user document from Firestore
       final userDoc = await FirebaseFirestore.instance
@@ -291,7 +335,7 @@ class _IdentityVerificationScreenState
 
       final userData = userDoc.data();
       if (userData == null) {
-        print("❌ No user document found.");
+        debugPrint('No user document found.');
         setState(() => isLoading = false);
         return;
       }
@@ -299,8 +343,8 @@ class _IdentityVerificationScreenState
       // Extract phone and email, defaulting to empty strings if missing
       userPhone = userData['phoneNumber']?.toString() ?? '';
       userEmail = userData['email']?.toString() ?? '';
-      print("👤 userPhone: $userPhone");
-      print("📧 userEmail: $userEmail");
+      isPhoneVerified = userData['phoneVerified'] == true;
+      debugPrint('Loaded verification contact details.');
 
       // Now load the identityVerification subcollection for this user
       final snapshot = await FirebaseFirestore.instance
@@ -310,7 +354,7 @@ class _IdentityVerificationScreenState
           .get();
 
       // Reset the statuses map before repopulating it
-      statuses.clear();
+      verificationData.clear();
 
       const validKeys = {
         'aadhaar',
@@ -320,6 +364,7 @@ class _IdentityVerificationScreenState
         'email',
         'phone',
         'backgroundCheck',
+        'policeCertificate',
       };
 
       for (var doc in snapshot.docs) {
@@ -328,128 +373,104 @@ class _IdentityVerificationScreenState
 
         // Skip any unknown keys so we only track expected verification items
         if (!validKeys.contains(key)) {
-          print("⚠️ Skipping unknown document: $key");
+          debugPrint('Skipping unknown verification document: $key');
           continue;
         }
 
         if (data.containsKey('status')) {
-          statuses[key] = data['status'].toString();
-          print("📄 $key = ${data['status']}");
+          verificationData[key] = data;
+          debugPrint('Verification $key = ${data['status']}');
         } else {
-          print("⚠️ '$key' has no status field");
+          debugPrint('Verification $key has no status field');
         }
       }
     } catch (e, stack) {
       // Catch and log any unexpected errors
-      print('❌ Error loading verification status: $e');
-      print(stack);
+      debugPrint('Error loading verification status: $e');
+      debugPrint(stack.toString());
     }
-    print("✅ Done loading verification status.");
+    debugPrint('Done loading verification status.');
 
     // Finally, hide the loading indicator
     setState(() => isLoading = false);
-    _calculateTierProgress(statuses);
+    final extractedStatuses = <String, String>{};
+
+    verificationData.forEach((key, value) {
+      extractedStatuses[key] = value['status']?.toString() ?? 'incomplete';
+    });
+
+    _calculateTierProgress(extractedStatuses);
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null) {
+      await WorkerVisibilityService().syncWorkerVisibility(currentUid);
+    }
   }
 
-  int get completedCount =>
-      statuses.values.where((status) => status == 'verified').length;
+  double get progress => _completedSteps / _totalSteps;
 
-  double get progress => completedCount / 6.0;
-
-  String getProgressLabel() => "$completedCount of 6 completed";
+  String getProgressLabel() => "$_completedSteps of $_totalSteps completed";
 
   String getActionText(String status) {
     switch (status) {
       case 'verified':
         return 'Verified successfully';
       case 'pending':
-        return 'Under review (2–3 hours)';
-      case 'failed':
-        return 'Reupload required - Image unclear';
+        return 'Under review (2-3 hours)';
+      case 'rejected':
+        return 'Rejected - Please re-upload';
       default:
         return 'Click to start verification';
     }
   }
 
-  Widget _buildPhoneVerificationCard() {
-    final status = statuses['phone'];
-    final isVerified = status == 'verified';
+  Future<void> _openVerificationDestination(String key) async {
+    Object? result;
 
-    return GestureDetector(
-      onTap: () async {
-        final result = await Navigator.pushNamed(
-          context,
-          PhoneVerificationScreen.routeName,
-        );
-        if (result == true) {
-          _loadVerificationStatus(); // Refresh after return
-        }
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isVerified ? Colors.green.shade50 : Colors.white,
-          border: Border.all(
-            color: isVerified ? Colors.green : Colors.grey.shade300,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            const CircleAvatar(
-              backgroundColor: Color(0xFFEFFDF5),
-              child: Icon(LucideIcons.phone, color: Colors.green),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Phone Verification',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isVerified
-                        ? 'Phone number verified successfully'
-                        : 'Tap to verify your phone number',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: isVerified
-                    ? Colors.green.shade100
-                    : Colors.orange.shade100,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                isVerified ? 'Verified' : 'Not Verified',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isVerified ? Colors.green : Colors.orange,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    if (key == 'pan') {
+      result = await Navigator.pushNamed(
+        context,
+        PANCardVerificationScreen.routeName,
+      );
+    } else if (key == 'aadhaar') {
+      result = await Navigator.pushNamed(
+        context,
+        '/government-id-verification',
+      );
+    } else if (key == 'phone') {
+      result = await Navigator.pushNamed(context, '/phone-verification');
+    } else if (key == 'email') {
+      result = await Navigator.pushNamed(context, '/email-verification');
+    } else if (key == 'addressProof') {
+      result = await Navigator.pushNamed(
+        context,
+        AddressVerificationScreen.routeName,
+      );
+    } else if (key == 'selfie') {
+      result = await Navigator.pushNamed(context, '/selfie-verification');
+    } else if (key == 'policeCertificate') {
+      result = await Navigator.pushNamed(context, '/police-certificate');
+    }
+
+    if (!mounted) return;
+    if (result == true ||
+        key == 'addressProof' ||
+        key == 'backgroundCheck' ||
+        key == 'aadhaar' ||
+        key == 'pan') {
+      _loadVerificationStatus();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    print("🛠️ Build called. isLoading = $isLoading");
+    _scheduleInitialFocusIfNeeded();
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text('Identity Verification'),
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         leading: IconButton(
           icon: const Icon(LucideIcons.arrowLeft),
           onPressed: () => Navigator.pop(context),
@@ -464,6 +485,7 @@ class _IdentityVerificationScreenState
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -478,10 +500,12 @@ class _IdentityVerificationScreenState
                           'Your Tier: ${currentTier!.replaceAll('_', ' ').toUpperCase()}',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        backgroundColor: Colors.indigo.shade50,
+                        backgroundColor: WorkableDesign.primary.withValues(
+                          alpha: 0.08,
+                        ),
                         avatar: const Icon(
                           Icons.verified_user,
-                          color: Colors.indigo,
+                          color: WorkableDesign.primary,
                         ),
                       ),
                     ),
@@ -494,7 +518,8 @@ class _IdentityVerificationScreenState
                       'icon': LucideIcons.phone,
                       'title': 'Phone Number',
                       'subtitle': userPhone ?? 'Phone not linked',
-                      'status': userPhone != null ? 'verified' : 'incomplete',
+
+                      //'status': userPhone != null ? 'verified' : 'incomplete'
                     }),
                   if (userEmail != null)
                     _buildVerificationItem({
@@ -539,17 +564,18 @@ class _IdentityVerificationScreenState
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(20),
+                      color: WorkableDesign.success.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(999),
                     ),
                     child: const Text(
                       'Worker Only',
-                      style: TextStyle(fontSize: 12, color: Colors.green),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: WorkableDesign.success,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _buildPhoneVerificationCard(),
-
                   _buildVerificationItem(
                     verificationItems[4],
                   ), // Background Check
@@ -569,19 +595,21 @@ class _IdentityVerificationScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade100),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+        color: WorkableDesign.surface,
+        border: Border.all(color: WorkableDesign.border),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const CircleAvatar(
-                backgroundColor: Color(0xFFE0F2FE),
-                child: Icon(LucideIcons.shield, color: Colors.blue),
+              CircleAvatar(
+                backgroundColor: WorkableDesign.primary.withValues(alpha: 0.1),
+                child: const Icon(
+                  LucideIcons.shield,
+                  color: WorkableDesign.primary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -600,7 +628,7 @@ class _IdentityVerificationScreenState
                       getProgressLabel(),
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Colors.orange,
+                        color: WorkableDesign.warning,
                       ),
                     ),
                   ],
@@ -609,18 +637,16 @@ class _IdentityVerificationScreenState
             ],
           ),
           const SizedBox(height: 16),
-          const Text('Progress', style: TextStyle(color: Colors.grey)),
+          const Text('Progress', style: TextStyle(color: WorkableDesign.muted)),
           const SizedBox(height: 4),
           Row(
             children: [
               Expanded(
                 child: LinearProgressIndicator(
-                  //value: progress,
-                  value: _completedSteps / _totalSteps,
-
+                  value: progress,
                   minHeight: 8,
-                  color: Colors.blue,
-                  backgroundColor: Colors.grey,
+                  color: WorkableDesign.primary,
+                  backgroundColor: WorkableDesign.border,
                 ),
               ),
               const SizedBox(width: 8),
@@ -642,8 +668,8 @@ class _IdentityVerificationScreenState
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(10),
+              color: WorkableDesign.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(WorkableDesign.radius),
             ),
             child: const Text.rich(
               TextSpan(
@@ -658,7 +684,7 @@ class _IdentityVerificationScreenState
                   ),
                 ],
               ),
-              style: TextStyle(fontSize: 13, color: Colors.blue),
+              style: TextStyle(fontSize: 13, color: WorkableDesign.primary),
             ),
           ),
         ],
@@ -667,62 +693,71 @@ class _IdentityVerificationScreenState
   }
 
   Widget _buildVerificationItem(Map<String, dynamic> item) {
-    final status = item['status'] ?? statuses[item['key']] ?? 'incomplete';
+    String status;
+
+    if (item['key'] == 'phone') {
+      status =
+          isPhoneVerified || verificationData['phone']?['status'] == 'verified'
+          ? 'verified'
+          : 'incomplete';
+    } else {
+      status =
+          item['status'] ??
+          verificationData[item['key']]?['status'] ??
+          'incomplete';
+    }
     final isRequired = item['isRequired'] != false;
     final actionText = getActionText(status);
     final icon = item['icon'] as IconData;
     final String key = item['key'];
+    final rejectionReason = verificationData[key]?['rejectionReason'];
 
     Color bgColor, borderColor;
     Icon statusIcon;
 
     switch (status) {
       case 'verified':
-        bgColor = Colors.green.shade50;
-        borderColor = Colors.green.shade200;
+        bgColor = WorkableDesign.success.withValues(alpha: 0.08);
+        borderColor = WorkableDesign.success.withValues(alpha: 0.22);
         statusIcon = const Icon(
           LucideIcons.check,
           size: 18,
-          color: Colors.green,
+          color: WorkableDesign.success,
         );
         break;
       case 'pending':
-        bgColor = Colors.yellow.shade50;
-        borderColor = Colors.yellow.shade200;
+        bgColor = WorkableDesign.warning.withValues(alpha: 0.08);
+        borderColor = WorkableDesign.warning.withValues(alpha: 0.22);
         statusIcon = const Icon(
           LucideIcons.clock,
           size: 18,
-          color: Colors.orange,
+          color: WorkableDesign.warning,
         );
         break;
-      case 'failed':
-        bgColor = Colors.red.shade50;
-        borderColor = Colors.red.shade200;
+      case 'rejected':
+        bgColor = WorkableDesign.danger.withValues(alpha: 0.08);
+        borderColor = WorkableDesign.danger.withValues(alpha: 0.22);
         statusIcon = const Icon(
           LucideIcons.alertCircle,
           size: 18,
-          color: Colors.red,
+          color: WorkableDesign.danger,
         );
         break;
       default:
-        bgColor = Colors.grey.shade100;
-        borderColor = Colors.grey.shade300;
+        bgColor = WorkableDesign.surface;
+        borderColor = WorkableDesign.border;
         statusIcon = const Icon(LucideIcons.chevronRight, size: 18);
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        border: Border.all(color: borderColor),
-        borderRadius: BorderRadius.circular(12),
-      ),
+    final shouldHighlight = _highlightedKey == key;
+
+    return AnimatedBuilder(
+      animation: _focusPulseAnimation,
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: Colors.white,
-            child: Icon(icon, color: Colors.blue),
+            backgroundColor: WorkableDesign.primary.withValues(alpha: 0.08),
+            child: Icon(icon, color: WorkableDesign.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -746,12 +781,15 @@ class _IdentityVerificationScreenState
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade100,
-                          borderRadius: BorderRadius.circular(20),
+                          color: WorkableDesign.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Text(
                           'Required',
-                          style: TextStyle(fontSize: 10, color: Colors.blue),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: WorkableDesign.primary,
+                          ),
                         ),
                       ),
                   ],
@@ -763,63 +801,39 @@ class _IdentityVerificationScreenState
                 // 👉 Dynamic clickable logic based on status + key
                 GestureDetector(
                   onTap: () async {
-                    final key = item['key'];
-
-                    if (key == 'pan') {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        PANCardVerificationScreen.routeName,
-                      );
-                      if (result == true) _loadVerificationStatus();
+                    if (status == 'verified' &&
+                        key != 'addressProof' &&
+                        key != 'backgroundCheck') {
+                      return;
                     }
-
-                    if (key == 'aadhaar') {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/government-id-verification',
-                      );
-                      if (result == true) _loadVerificationStatus();
-                    }
-
-                    if (key == 'phone' && status != 'verified') {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/phone-verification',
-                      );
-                      if (result == true) _loadVerificationStatus();
-                    }
-
-                    if (key == 'email' && status == 'pending') {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/email-verification',
-                      );
-                      if (result == true) _loadVerificationStatus();
-                    }
-
-                    if (key == 'addressProof') {
-                      Navigator.pushNamed(context, '/address-verification');
-                    }
-
-                    if (key == 'selfie' && status != 'verified') {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/selfie-verification',
-                      );
-                      if (result == true) _loadVerificationStatus();
-                    }
-                    if (key == 'backgroundCheck') {
-                      Navigator.pushNamed(context, '/background-check');
-                    }
+                    await _openVerificationDestination(key);
                   },
-                  child: Text(
-                    actionText,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.blue,
-                      decoration: TextDecoration.underline,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        actionText,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: WorkableDesign.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+
+                      if (status == 'rejected' && rejectionReason != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            rejectionReason,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: WorkableDesign.danger,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
@@ -828,6 +842,42 @@ class _IdentityVerificationScreenState
           statusIcon,
         ],
       ),
+      builder: (context, child) {
+        final pulse = shouldHighlight ? _focusPulseAnimation.value : 0.0;
+        final effectiveBgColor = Color.lerp(
+          bgColor,
+          WorkableDesign.primary.withValues(alpha: 0.08),
+          pulse,
+        )!;
+        final effectiveBorderColor = Color.lerp(
+          borderColor,
+          WorkableDesign.primary,
+          pulse,
+        )!;
+
+        return Container(
+          key: _verificationItemKeys[key],
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: effectiveBgColor,
+            border: Border.all(color: effectiveBorderColor, width: 1 + pulse),
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            boxShadow: shouldHighlight
+                ? [
+                    BoxShadow(
+                      color: WorkableDesign.primary.withValues(
+                        alpha: 0.18 * pulse,
+                      ),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: child,
+        );
+      },
     );
   }
 
@@ -845,9 +895,9 @@ class _IdentityVerificationScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade100),
-        borderRadius: BorderRadius.circular(16),
+        color: WorkableDesign.surface,
+        border: Border.all(color: WorkableDesign.border),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
       ),
       child: Column(
         children: [
@@ -862,8 +912,10 @@ class _IdentityVerificationScreenState
                 child: CustomButton(
                   text: 'Upload Documents',
                   icon: LucideIcons.upload,
-                  backgroundColor: Colors.blue.shade50,
-                  textColor: Colors.blue,
+                  backgroundColor: WorkableDesign.primary.withValues(
+                    alpha: 0.08,
+                  ),
+                  textColor: WorkableDesign.primary,
                   // onPressed: () {
                   //   // TODO: Navigate to upload screen
                   // },
@@ -875,8 +927,8 @@ class _IdentityVerificationScreenState
                 child: CustomButton(
                   text: 'Refresh Status',
                   icon: LucideIcons.refreshCw,
-                  backgroundColor: Colors.grey.shade100,
-                  textColor: Colors.grey.shade800,
+                  backgroundColor: WorkableDesign.canvas,
+                  textColor: WorkableDesign.ink,
                   onPressed: _loadVerificationStatus,
                 ),
               ),
@@ -903,8 +955,10 @@ class _IdentityVerificationScreenState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.shade100),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        border: Border.all(
+          color: WorkableDesign.success.withValues(alpha: 0.2),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -917,7 +971,11 @@ class _IdentityVerificationScreenState
           ...benefits.map(
             (text) => Row(
               children: [
-                const Icon(LucideIcons.check, size: 16, color: Colors.green),
+                const Icon(
+                  LucideIcons.check,
+                  size: 16,
+                  color: WorkableDesign.success,
+                ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(text, style: const TextStyle(fontSize: 13)),
@@ -934,15 +992,18 @@ class _IdentityVerificationScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade100),
-        borderRadius: BorderRadius.circular(16),
+        color: WorkableDesign.surface,
+        border: Border.all(color: WorkableDesign.border),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
       ),
       child: Row(
         children: [
-          const CircleAvatar(
-            backgroundColor: Color(0xFFE0F2FE),
-            child: Icon(LucideIcons.helpCircle, color: Colors.blue),
+          CircleAvatar(
+            backgroundColor: WorkableDesign.primary.withValues(alpha: 0.1),
+            child: const Icon(
+              LucideIcons.helpCircle,
+              color: WorkableDesign.primary,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -956,7 +1017,7 @@ class _IdentityVerificationScreenState
                 SizedBox(height: 4),
                 Text(
                   'Contact our verification support team',
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                  style: TextStyle(fontSize: 13, color: WorkableDesign.muted),
                 ),
               ],
             ),
@@ -966,7 +1027,7 @@ class _IdentityVerificationScreenState
               // TODO: Navigate to support screen
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: WorkableDesign.primary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),

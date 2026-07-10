@@ -1,0 +1,343 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid))
+          .data.userType == 'admin';
+    }
+
+    // AI/Smart Help usage is owned by the backend.
+    // Users may read their own allowance/usage, but cannot increase,
+    // reset, or manually create usage records from the client app.
+    match /aiUsage/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create, update, delete: if false;
+
+      match /days/{dayId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Smart Booking AI cache is backend-owned.
+    // Client apps should not create or modify cached AI diagnoses.
+    match /smartBookingAiCache/{cacheId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Core account documents.
+    // User docs may still be read by signed-in users because chat/profile
+    // surfaces currently resolve display names through users/{uid}.
+    // Writes are restricted to the owner or admin.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if isOwner(uid) || isAdmin();
+      allow update: if isOwner(uid) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /addresses/{addressId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      match /favoriteWorkers/{favoriteId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      match /paymentMethods/{methodId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      match /fcmTokens/{tokenId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      match /notifications/{notificationId} {
+        allow read, update, delete: if isOwner(uid) || isAdmin();
+        allow create: if isOwner(uid) || isAdmin();
+      }
+
+      match /identityVerification/{documentId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+
+      match /verificationNotificationHistory/{historyId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+    }
+
+    match /customers/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create, update: if isOwner(uid) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /favoriteWorkers/{favoriteId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+    }
+
+    // Worker marketplace profiles are readable by signed-in users so customer
+    // search, matching, dashboard cards, and worker profile pages keep working.
+    // Only the worker owner or admin can write the profile.
+    match /workers/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /portfolio/{itemId} {
+        allow read: if signedIn();
+        allow create, update, delete: if isOwner(uid) || isAdmin();
+      }
+
+      match /reviews/{reviewId} {
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    match /bookings/{bookingId} {
+      function isBookingCustomer() {
+        return signedIn() && resource.data.customerId == request.auth.uid;
+      }
+
+      function isBookingWorker() {
+        return signedIn() && resource.data.workerId == request.auth.uid;
+      }
+
+      function isNewBookingCustomer() {
+        return signedIn() && request.resource.data.customerId == request.auth.uid;
+      }
+
+      function isNewBookingWorker() {
+        return signedIn() && request.resource.data.workerId == request.auth.uid;
+      }
+
+      allow read: if isBookingCustomer() || isBookingWorker() || isAdmin();
+
+      // Normal customer booking creation, plus worker-created linked booking
+      // when accepting a Help Request.
+      allow create: if isNewBookingCustomer() ||
+        (isNewBookingWorker() &&
+          request.resource.data.source == 'help_request' &&
+          request.resource.data.sourceHelpRequestId is string) ||
+        isAdmin();
+
+      allow update: if isBookingCustomer() || isBookingWorker() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /helpRequests/{requestId} {
+      function isHelpCustomer() {
+        return signedIn() && resource.data.customerId == request.auth.uid;
+      }
+
+      function isHelpWorker() {
+        return signedIn() &&
+          (resource.data.workerId == request.auth.uid ||
+            resource.data.acceptedWorkerId == request.auth.uid);
+      }
+
+      function isOpenHelpRequest() {
+        return resource.data.status == 'open';
+      }
+
+      function isNewHelpCustomer() {
+        return signedIn() && request.resource.data.customerId == request.auth.uid;
+      }
+
+      function isAcceptingOpenHelpRequest() {
+        return signedIn() &&
+          isOpenHelpRequest() &&
+          request.resource.data.workerId == request.auth.uid &&
+          request.resource.data.acceptedWorkerId == request.auth.uid;
+      }
+
+      allow read: if isHelpCustomer() || isHelpWorker() ||
+        isOpenHelpRequest() || isAdmin();
+      allow create: if isNewHelpCustomer() || isAdmin();
+      allow update: if isHelpCustomer() || isHelpWorker() ||
+        isAcceptingOpenHelpRequest() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      function isTransactionCustomer() {
+        return signedIn() && resource.data.customerId == request.auth.uid;
+      }
+
+      function isTransactionWorker() {
+        return signedIn() && resource.data.workerId == request.auth.uid;
+      }
+
+      function isNewTransactionCustomer() {
+        return signedIn() && request.resource.data.customerId == request.auth.uid;
+      }
+
+      allow read: if isTransactionCustomer() || isTransactionWorker() || isAdmin();
+      allow create: if isNewTransactionCustomer() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /payoutRequests/{requestId} {
+      function isPayoutWorker() {
+        return signedIn() && resource.data.workerId == request.auth.uid;
+      }
+
+      function isNewPayoutWorker() {
+        return signedIn() && request.resource.data.workerId == request.auth.uid;
+      }
+
+      allow read: if isPayoutWorker() || isAdmin();
+      allow create: if isNewPayoutWorker() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /reviews/{reviewId} {
+      function isReviewCustomer() {
+        return signedIn() && resource.data.customerId == request.auth.uid;
+      }
+
+      function isNewReviewCustomer() {
+        return signedIn() && request.resource.data.customerId == request.auth.uid;
+      }
+
+      allow read: if signedIn();
+      allow create: if isNewReviewCustomer() || isAdmin();
+      allow update: if isReviewCustomer() || isAdmin();
+      allow delete: if isReviewCustomer() || isAdmin();
+    }
+
+    match /chats/{chatId} {
+      function isChatParticipant() {
+        return signedIn() && request.auth.uid in resource.data.participants;
+      }
+
+      function isNewChatParticipant() {
+        return signedIn() &&
+          request.resource.data.participants is list &&
+          request.auth.uid in request.resource.data.participants;
+      }
+
+      allow read: if isChatParticipant() || isAdmin();
+      allow create: if isNewChatParticipant() || isAdmin();
+      allow update: if isChatParticipant() || isNewChatParticipant() || isAdmin();
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        function isParentChatParticipant() {
+          return signedIn() &&
+            request.auth.uid in
+              get(/databases/$(database)/documents/chats/$(chatId))
+                .data.participants;
+        }
+
+        allow read: if isParentChatParticipant() || isAdmin();
+        allow create: if isParentChatParticipant() &&
+          request.resource.data.senderId == request.auth.uid;
+        allow update: if isParentChatParticipant() || isAdmin();
+        allow delete: if isAdmin();
+      }
+
+      match /status/{statusId} {
+        function isParentChatParticipant() {
+          return signedIn() &&
+            request.auth.uid in
+              get(/databases/$(database)/documents/chats/$(chatId))
+                .data.participants;
+        }
+
+        allow read, write: if isParentChatParticipant() || isAdmin();
+      }
+    }
+
+    match /adminVerificationQueue/{requestId} {
+      function isVerificationOwner() {
+        return signedIn() && resource.data.uid == request.auth.uid;
+      }
+
+      function isNewVerificationOwner() {
+        return signedIn() && request.resource.data.uid == request.auth.uid;
+      }
+
+      allow read: if isVerificationOwner() || isAdmin();
+      allow create: if isNewVerificationOwner() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /demandSignals/{signalId} {
+      allow read: if signedIn();
+      // Customer demand creation and worker opportunity claims now run through
+      // Cloud Functions. Admins can still review, merge, and approve here.
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /skills/{skillId} {
+      allow read: if signedIn();
+      // Worker signup suggestions now run through Cloud Functions. Admin
+      // Demand Review can still approve new categories into this collection.
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /support_requests/{requestId} {
+      function isSupportOwner() {
+        return signedIn() && resource.data.userId == request.auth.uid;
+      }
+
+      function isNewSupportOwner() {
+        return signedIn() && request.resource.data.userId == request.auth.uid;
+      }
+
+      allow read: if isSupportOwner() || isAdmin();
+      allow create: if isNewSupportOwner() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /reported_issues/{issueId} {
+      function isIssueOwner() {
+        return signedIn() && resource.data.userId == request.auth.uid;
+      }
+
+      function isNewIssueOwner() {
+        return signedIn() && request.resource.data.userId == request.auth.uid;
+      }
+
+      allow read: if isIssueOwner() || isAdmin();
+      allow create: if isNewIssueOwner() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /referrals/{referralId} {
+      function isReferralOwner() {
+        return signedIn() && resource.data.referrerId == request.auth.uid;
+      }
+
+      function isNewReferralOwner() {
+        return signedIn() &&
+          request.resource.data.referrerId == request.auth.uid;
+      }
+
+      allow read: if isReferralOwner() || isAdmin();
+      allow create: if isNewReferralOwner() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // Closed fallback. New collections should receive explicit rules before
+    // production use.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,14 +1,11 @@
-import 'dart:io'; // Add this import
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:image_picker/image_picker.dart'; // Ensure this import is included
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-
-import 'package:firebase_auth/firebase_auth.dart';
-
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
+import '../core/theme/workable_design.dart';
+import '../helpers/document_ocr_helper.dart';
+import '../models/verification_documents.dart';
+import '../services/identity_verification_service.dart';
 
 class PANCardVerificationScreen extends StatefulWidget {
   static const routeName = '/pan-card-verification';
@@ -33,11 +30,19 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
   late Animation<double> _scaleAnimation;
   bool isOcrProcessing = false;
 
+  Map<String, dynamic>? verificationData;
+
+  String verificationStatus = 'incomplete';
+
+  bool isInitialLoading = true;
+
   File? capturedImage; // Declare the captured image here
 
   final ImagePicker _picker = ImagePicker(); // ImagePicker instance
   final TextEditingController _panController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
+  final IdentityVerificationService _verificationService =
+      IdentityVerificationService();
 
   bool validatePAN(String pan) {
     final regex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');
@@ -47,6 +52,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
   @override
   void initState() {
     super.initState();
+    _loadVerificationStatus();
 
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 600),
@@ -75,58 +81,8 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
     return input.substring(0, input.length.clamp(0, 10));
   }
 
-  Future<Map<String, String>> extractPANDetailsFromImage(File imageFile) async {
-    final inputImage = InputImage.fromFile(imageFile);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final RecognizedText recognizedText = await textRecognizer.processImage(
-      inputImage,
-    );
-
-    String pan = '';
-    String name = '';
-
-    for (TextBlock block in recognizedText.blocks) {
-      for (TextLine line in block.lines) {
-        final text = line.text.trim();
-
-        // Detect PAN number using regex
-        if (pan.isEmpty && RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$').hasMatch(text)) {
-          pan = text;
-        }
-
-        // Heuristically detect name (long text line with no digits and not common headers)
-        if (name.isEmpty &&
-            text.length > 5 &&
-            !text.contains(RegExp(r'\d')) &&
-            !text.toUpperCase().contains('INCOME TAX') &&
-            !text.toUpperCase().contains('GOVT') &&
-            !text.toUpperCase().contains('DEPARTMENT')) {
-          name = text;
-        }
-      }
-    }
-
-    return {'pan': pan, 'name': name};
-  }
-
   Future<File> compressImage(File file) async {
-    final targetPath =
-        '${file.parent.path}/compressed_${file.uri.pathSegments.last}';
-
-    final result = await FlutterImageCompress.compressAndGetFile(
-      file.absolute.path,
-      targetPath,
-      quality: 85,
-      minWidth: 1024,
-      minHeight: 1024,
-    );
-
-    // ✅ Convert result (XFile or File?) to File
-    if (result != null) {
-      return File(result.path);
-    } else {
-      return file; // fallback to original file
-    }
+    return _verificationService.compressImage(file);
   }
 
   // Future<void> _captureImage() async {
@@ -220,10 +176,12 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
 
         try {
           setState(() => isOcrProcessing = true);
-          final extracted = await extractPANDetailsFromImage(capturedImage!);
-          if (extracted['pan']!.isNotEmpty) {
+          final extracted = await DocumentOcrHelper.extractPANDetails(
+            capturedImage!,
+          );
+          if (mounted) {
             setState(() {
-              panNumber = extracted['pan']!;
+              panNumber = extracted['number'] ?? '';
               fullName = extracted['name'] ?? '';
               _panController.text = panNumber;
               _nameController.text = fullName;
@@ -232,6 +190,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
             });
           }
         } catch (e) {
+          if (!mounted) return;
           setState(() => isOcrProcessing = false);
           debugPrint('OCR failed: $e');
           ScaffoldMessenger.of(context).showSnackBar(
@@ -243,6 +202,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
           );
         }
       } else {
+        if (!mounted) return;
         setState(() {
           uploadMethod = null;
           capturedImage = null;
@@ -253,12 +213,13 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
         ).showSnackBar(const SnackBar(content: Text('No image captured.')));
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => isLoading = false);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Camera error: $e')));
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -278,10 +239,12 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
 
         try {
           setState(() => isOcrProcessing = true);
-          final extracted = await extractPANDetailsFromImage(capturedImage!);
-          if (extracted['pan']!.isNotEmpty) {
+          final extracted = await DocumentOcrHelper.extractPANDetails(
+            capturedImage!,
+          );
+          if (mounted) {
             setState(() {
-              panNumber = extracted['pan']!;
+              panNumber = extracted['number'] ?? '';
               fullName = extracted['name'] ?? '';
               _panController.text = panNumber;
               _nameController.text = fullName;
@@ -290,6 +253,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
             });
           }
         } catch (e) {
+          if (!mounted) return;
           setState(() => isOcrProcessing = false);
           debugPrint('OCR failed: $e');
           ScaffoldMessenger.of(context).showSnackBar(
@@ -301,6 +265,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
           );
         }
       } else {
+        if (!mounted) return;
         setState(() {
           uploadMethod = null;
           capturedImage = null;
@@ -311,12 +276,57 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
         ).showSnackBar(const SnackBar(content: Text('No image selected.')));
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => isLoading = false);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Gallery error: $e')));
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _loadVerificationStatus() async {
+    try {
+      final data = await _verificationService.loadVerificationStatus(
+        VerificationDocuments.pan.documentId,
+      );
+
+      if (data != null) {
+        verificationData = data;
+
+        verificationStatus = data['status'] ?? 'incomplete';
+
+        panNumber = data['number'] ?? '';
+
+        fullName = data['name'] ?? '';
+
+        _panController.text = panNumber;
+
+        _nameController.text = fullName;
+
+        // Restore uploaded image URL if exists
+        if (verificationStatus == 'pending') {
+          currentStep = 3;
+        }
+
+        if (verificationStatus == 'verified') {
+          currentStep = 3;
+          showSuccessScreen = false;
+        }
+
+        if (verificationStatus == 'rejected') {
+          currentStep = 1;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading PAN verification status: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        isInitialLoading = false;
+      });
     }
   }
 
@@ -424,22 +434,11 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
   }
 
   Future<void> _submitForm() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
     setState(() => isLoading = true);
 
     try {
-      String? downloadUrl;
-
-      // Upload image if available
-      if (capturedImage != null) {
-        final storageRef = FirebaseStorage.instance.ref(
-          'pan_cards/$uid/${DateTime.now().millisecondsSinceEpoch}.jpg',
-        );
-        final uploadTask = await storageRef.putFile(capturedImage!);
-        downloadUrl = await uploadTask.ref.getDownloadURL();
-      }
+      final isReplacingExistingDocument =
+          verificationData != null && verificationData?['imageUrl'] != null;
 
       // Only validate PAN if using manual method
       if (uploadMethod == 'manual' && !validatePAN(panNumber)) {
@@ -450,41 +449,28 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
         return;
       }
 
-      final panData = {
-        'status': 'pending',
-        'uploadedAt': Timestamp.now(),
-        'method': uploadMethod, // ✅ store upload method
-        if (uploadMethod == 'manual') ...{
-          'number': panNumber,
-          'fullName': fullName,
-        },
-        if (downloadUrl != null) 'imageUrl': downloadUrl,
-      };
+      final panData = await _verificationService.submitVerificationDocument(
+        config: VerificationDocuments.pan,
+        uploadMethod: uploadMethod,
+        imageFile: capturedImage,
+        replaceExistingImage: isReplacingExistingDocument,
+        existingData: verificationData,
+        fields: {'name': fullName, 'number': panNumber},
+      );
+      verificationData = panData;
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('identityVerification')
-          .doc('pan')
-          .set(panData);
-
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PAN submitted for verification')),
       );
     } catch (e) {
+      if (!mounted) return;
       setState(() => isLoading = false);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      return;
     }
-
-    // 👇 Add this here
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pushReplacementNamed(
-        context,
-        '/identity-verification',
-      ); // or your actual screen
-    });
 
     // Step 3: move to verification in progress
     setState(() {
@@ -502,14 +488,18 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
     // Auto-dismiss and navigate back after success
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) {
-      Navigator.pushReplacementNamed(context, '/identity-verification');
+      Navigator.pop(context, true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (isInitialLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         elevation: 0,
         title: Text(
@@ -561,7 +551,83 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                 ),
               ),
               const SizedBox(height: 20),
+              if (verificationStatus == 'verified') ...[
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.verified, color: Colors.green, size: 60),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'PAN Card Verified',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
+                      if (verificationData?['imageUrl'] != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            verificationData!['imageUrl'],
+                            height: 180,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+
+                      const SizedBox(height: 12),
+
+                      Text(
+                        'PAN: ${verificationData?['number'] ?? ''}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+
+                      Text(
+                        'Name: ${verificationData?['name'] ?? ''}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            verificationStatus = 'incomplete';
+
+                            currentStep = 1;
+
+                            capturedImage = null;
+
+                            uploadMethod = null;
+
+                            showSuccessScreen = false;
+
+                            panNumber = '';
+
+                            fullName = '';
+
+                            _panController.clear();
+
+                            _nameController.clear();
+                          });
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Replace PAN Document'),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+              ],
               if (currentStep == 1) ...[
                 // Instructions
                 Container(
@@ -740,7 +806,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                   },
 
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: WorkableDesign.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -764,7 +830,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -875,7 +941,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                   icon: const Icon(Icons.verified_user, color: Colors.white),
                   label: const Text('Submit for Verification'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: WorkableDesign.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -896,38 +962,97 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                     border: Border.all(color: Colors.grey.shade200),
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        LucideIcons.clock,
-                        size: 48,
-                        color: Colors.orange,
+                      Row(
+                        children: const [
+                          Icon(
+                            LucideIcons.clock,
+                            size: 26,
+                            color: Colors.orange,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'Verification in Progress',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Verification in Progress',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+
                       const SizedBox(height: 8),
+
                       const Text(
-                        'This usually takes 2–3 hours',
+                        'Your PAN card is currently under review.',
                         style: TextStyle(color: Colors.grey),
                       ),
+
                       const SizedBox(height: 20),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'What happens next?',
-                            style: TextStyle(fontWeight: FontWeight.bold),
+
+                      if (verificationData?['imageUrl'] != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            verificationData!['imageUrl'],
+                            height: 200,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
                           ),
-                          SizedBox(height: 8),
-                          Text('• Document authenticity check'),
-                          Text('• Validation with govt database'),
-                          Text('• Profile matching & approval'),
-                        ],
+                        ),
+
+                      const SizedBox(height: 16),
+
+                      Text(
+                        'PAN: ${verificationData?['number'] ?? ''}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      Text(
+                        'Name: ${verificationData?['name'] ?? ''}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      if (verificationData?['submittedAt'] != null)
+                        Text(
+                          'Submitted: ${verificationData!['submittedAt'].toDate()}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+
+                      const SizedBox(height: 20),
+
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            verificationStatus = 'incomplete';
+
+                            currentStep = 1;
+
+                            capturedImage = null;
+
+                            uploadMethod = null;
+
+                            showSuccessScreen = false;
+
+                            panNumber = '';
+
+                            fullName = '';
+
+                            _panController.clear();
+
+                            _nameController.clear();
+                          });
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Replace PAN Document'),
                       ),
                     ],
                   ),
@@ -948,7 +1073,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -963,7 +1088,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'Submitted Successfully!',
+                          'PAN Card Submitted Successfully!',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -971,7 +1096,7 @@ class _PANCardVerificationScreenState extends State<PANCardVerificationScreen>
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'We\'ll notify you after verification is completed.',
+                          'Your PAN card is now under review.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey),
                         ),

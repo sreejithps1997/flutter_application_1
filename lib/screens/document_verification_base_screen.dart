@@ -5,7 +5,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 class DocumentVerificationBaseScreen extends StatefulWidget {
   final String title;
@@ -108,7 +107,7 @@ class _DocumentVerificationBaseScreenState
 
     final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
     final storageRef = FirebaseStorage.instance.ref(
-      '${widget.storagePath}/$uid/$fileName',
+      'users/$uid/identityVerification/${widget.storagePath}/$fileName',
     );
     await storageRef.putFile(imageFile!);
     final url = await storageRef.getDownloadURL();

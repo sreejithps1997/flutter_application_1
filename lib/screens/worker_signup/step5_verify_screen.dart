@@ -1,34 +1,32 @@
 import 'dart:io';
-import 'dart:typed_data';
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // compute
-import 'package:image_picker/image_picker.dart';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:workable/screens/worker_dashboard_screen.dart';
-import 'package:workable/services/auth_service.dart';
-import '../../models/worker_onboarding_data.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:workable/helpers/document_ocr_helper.dart';
 import 'package:workable/helpers/face_match_helper.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
-import 'package:flutter/painting.dart';
 import 'package:workable/screens/selfie_camera_screen.dart';
+import 'package:workable/screens/worker_dashboard_screen.dart';
+import 'package:workable/services/auth_service.dart';
 
-/// ---- TOP-LEVEL worker for compute (must be top-level, not inside a class) ----
+import '../../core/theme/workable_design.dart';
+import '../../models/worker_onboarding_data.dart';
+import '../../widgets/worker_onboarding_shell.dart';
+
 Future<double?> _compareWorker(List args) async {
-  final String selfiePath = args[0] as String;
-  final String profileUrl = args[1] as String;
-  // Runs in background isolate
+  final selfiePath = args[0] as String;
+  final profileUrl = args[1] as String;
   return FaceMatchHelper.compareFaces(
     selfieFile: File(selfiePath),
     profileImageUrl: profileUrl,
   );
 }
-
-/// -----------------------------------------------------------------------------
 
 class Step5VerifyScreen extends StatefulWidget {
   static const routeName = '/step5-verify';
@@ -41,14 +39,8 @@ class Step5VerifyScreen extends StatefulWidget {
 }
 
 class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
-    );
-  }
-
-  final ImagePicker _picker = ImagePicker();
-  final AuthService _authService = AuthService();
+  final _picker = ImagePicker();
+  final _authService = AuthService();
 
   File? primaryFront;
   File? primaryBack;
@@ -57,82 +49,55 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
   String? selectedPrimaryId;
   bool consentChecked = false;
   bool _isSubmitting = false;
-  bool _picking = false;
 
   String? extractedName;
   String? extractedNumber;
 
   late WorkerOnboardingData onboardingData;
 
-  final List<String> idOptions = [
-    "Aadhar Card",
-    "Passport",
-    "Driving License",
-    "Voter ID Card",
+  final List<String> idOptions = const [
+    'Aadhar Card',
+    'Passport',
+    'Driving License',
+    'Voter ID Card',
   ];
-
-  // @override
-  // void initState() {
-  //   super.initState();
-  //   onboardingData = widget.onboardingData;
-
-  //   // Ensure we have profileImageUrl (for face match) by fetching from Firestore if missing
-  //   if ((onboardingData.profileImageUrl ?? '').isEmpty) {
-  //     final uid = FirebaseAuth.instance.currentUser?.uid;
-  //     if (uid != null) {
-  //       FirebaseFirestore.instance.collection('workers').doc(uid).get().then((
-  //         doc,
-  //       ) {
-  //         if (doc.exists && mounted) {
-  //           final url = doc.data()?['profileImageUrl'] as String?;
-  //           if ((url ?? '').isNotEmpty) {
-  //             setState(() {
-  //               onboardingData = onboardingData.copyWith(profileImageUrl: url);
-  //             });
-  //           }
-  //         }
-  //       });
-  //     }
-  //   }
-  // }
 
   @override
   void initState() {
     super.initState();
     onboardingData = widget.onboardingData;
+    _loadProfileImageIfMissing();
+  }
 
-    // Ensure profileImageUrl is available (for face match)
-    if ((onboardingData.profileImageUrl ?? '').isEmpty) {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        // Try workers collection first
-        FirebaseFirestore.instance.collection('workers').doc(uid).get().then((
-          doc,
-        ) async {
-          String? url = doc.data()?['profileImageUrl'] as String?;
+  Future<void> _loadProfileImageIfMissing() async {
+    if ((onboardingData.profileImageUrl ?? '').isNotEmpty) return;
 
-          // If not found, fallback to users collection
-          if ((url ?? '').isEmpty) {
-            final userDoc = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(uid)
-                .get();
-            url =
-                userDoc.data()?['profileImageUrl'] as String? ??
-                userDoc.data()?['profileImage'] as String?; // legacy fallback
-          }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
 
-          // Update onboardingData if URL found
-          if ((url ?? '').isNotEmpty && mounted) {
-            setState(() {
-              onboardingData = onboardingData.copyWith(profileImageUrl: url);
-            });
-            print("✅ Profile image URL loaded for verification: $url");
-          } else {
-            print("⚠️ No profile image found in workers or users for uid=$uid");
-          }
-        });
-      }
+    final workerDoc = await FirebaseFirestore.instance
+        .collection('workers')
+        .doc(uid)
+        .get();
+    var url = workerDoc.data()?['profileImageUrl'] as String?;
+
+    if ((url ?? '').isEmpty) {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      url =
+          userDoc.data()?['profileImageUrl'] as String? ??
+          userDoc.data()?['profileImage'] as String?;
+    }
+
+    if (!mounted) return;
+    if ((url ?? '').isNotEmpty) {
+      setState(() {
+        onboardingData = onboardingData.copyWith(profileImageUrl: url);
+      });
+    } else {
+      debugPrint('No profile image found for worker verification uid=$uid');
     }
   }
 
@@ -154,7 +119,7 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
       minHeight: maxH,
       keepExif: false,
     );
-    return (out != null) ? File(out.path) : src;
+    return out != null ? File(out.path) : src;
   }
 
   void _clearImageCache() {
@@ -162,20 +127,17 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
     PaintingBinding.instance.imageCache.clearLiveImages();
   }
 
-  Future<void> _pickImageFromCamera(Function(File) onPicked) async {
-    if (!mounted) return;
-    // Navigate to our in-app camera
-    final File? file = await Navigator.of(
+  Future<void> _pickImageFromCamera(ValueChanged<File> onPicked) async {
+    final file = await Navigator.of(
       context,
     ).push<File>(MaterialPageRoute(builder: (_) => const SelfieCameraScreen()));
     if (file != null && mounted) {
-      // tiny settle delay (harmless)
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
       onPicked(file);
     }
   }
 
-  Future<void> _pickImageFromGallery(Function(File) onPicked) async {
+  Future<void> _pickImageFromGallery(ValueChanged<File> onPicked) async {
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 65,
@@ -211,15 +173,11 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
     final success =
         (extractedName?.isNotEmpty ?? false) ||
         (extractedNumber?.isNotEmpty ?? false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? "OCR Successful: $extractedName | $extractedNumber"
-              : "Failed to extract details from ID",
-        ),
-        backgroundColor: success ? Colors.green : Colors.red,
-      ),
+    _showMessage(
+      success
+          ? 'ID details detected for review.'
+          : 'Could not read ID details.',
+      success ? WorkableDesign.success : WorkableDesign.danger,
     );
   }
 
@@ -227,120 +185,110 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        _showError("Not signed in.");
+        _showError('Not signed in.');
         return null;
       }
       if (selfie == null) {
-        _showError("No selfie selected.");
+        _showError('No selfie selected.');
         return null;
       }
 
-      final uid = user.uid;
       final fileName = 'selfie_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
       final ref = FirebaseStorage.instance
           .ref()
           .child('selfie_images')
-          .child(uid)
+          .child(user.uid)
           .child(fileName);
 
       await ref.putFile(selfie!, SettableMetadata(contentType: 'image/jpeg'));
-      final url = await ref.getDownloadURL();
-      return url;
+      return ref.getDownloadURL();
     } on FirebaseException catch (e) {
-      debugPrint('❌ Storage upload failed: ${e.code} ${e.message}');
+      debugPrint('Selfie upload failed: ${e.code} ${e.message}');
       _showError('Selfie upload failed: ${e.code}');
       return null;
     } catch (e) {
-      debugPrint('❌ Storage upload failed: $e');
+      debugPrint('Selfie upload failed: $e');
       _showError('Selfie upload failed.');
       return null;
     }
   }
 
-  // ---- Face match off UI isolate ----
   Future<double?> _compareFacesOffUiIsolate({
     required File selfie,
     required String profileImageUrl,
-  }) async {
-    // Pass only simple values to compute (path + url). Worker reads the file.
+  }) {
     return compute(_compareWorker, [
       selfie.path,
       profileImageUrl,
     ]).timeout(const Duration(seconds: 25), onTimeout: () => null);
   }
-  // -----------------------------------
 
   Future<bool> _validateSelfieWithProfile() async {
-    try {
-      final profileUrl = onboardingData.profileImageUrl;
-      if (profileUrl == null || profileUrl.isEmpty) {
-        _showError("Profile photo missing from Step 1. Please re-add it.");
-        return false;
-      }
-      if (selfie == null) {
-        _showError("Please upload a selfie.");
-        return false;
-      }
-
-      // Upload selfie
-      final selfieUrl = await _uploadSelfieToStorage();
-      if (selfieUrl == null) {
-        _showError("Selfie upload failed. Check internet/permissions.");
-        return false;
-      }
-
-      // Compare faces in background
-      double? confidence;
-      try {
-        confidence = await _compareFacesOffUiIsolate(
-          selfie: selfie!,
-          profileImageUrl: profileUrl,
-        );
-      } catch (e, st) {
-        debugPrint("FaceMatch error: $e\n$st");
-        _showError("Face comparison crashed. Please try again.");
-        return false;
-      }
-      if (confidence == null) {
-        _showError(
-          "Face comparison failed or timed out. Please retake a clear selfie.",
-        );
-        return false;
-      }
-
-      // Persist results
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      await FirebaseFirestore.instance.collection('workers').doc(uid).set({
-        'selfieUrl': selfieUrl,
-        'faceMatchScore': confidence,
-        'verification': {
-          'selfieUrl': selfieUrl,
-          'faceMatchScore': confidence,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      }, SetOptions(merge: true));
-
-      if (confidence < 70) {
-        _showError(
-          "Face mismatch detected (score: ${confidence.toStringAsFixed(2)})",
-        );
-        return false;
-      }
-
-      return true;
-    } catch (e, st) {
-      debugPrint("❌ _validateSelfieWithProfile error: $e\n$st");
-      _showError("Selfie validation failed. Please try again.");
+    final profileUrl = onboardingData.profileImageUrl;
+    if (profileUrl == null || profileUrl.isEmpty) {
+      _showError('Profile photo missing. Please re-add it.');
       return false;
     }
+    if (selfie == null) {
+      _showError('Please capture a selfie.');
+      return false;
+    }
+
+    final selfieUrl = await _uploadSelfieToStorage();
+    if (selfieUrl == null) return false;
+
+    final confidence = await _compareFacesOffUiIsolate(
+      selfie: selfie!,
+      profileImageUrl: profileUrl,
+    );
+    if (confidence == null) {
+      _showError('Face comparison timed out. Please retake a clear selfie.');
+      return false;
+    }
+
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    await FirebaseFirestore.instance.collection('workers').doc(uid).set({
+      'selfieUrl': selfieUrl,
+      'faceMatchScore': confidence,
+      'verification': {
+        'selfieUrl': selfieUrl,
+        'faceMatchScore': confidence,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    }, SetOptions(merge: true));
+
+    if (confidence < 70) {
+      _showError(
+        'Face mismatch detected. Retake a clear selfie and try again.',
+      );
+      return false;
+    }
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('identityVerification')
+        .doc('selfie')
+        .set({
+          'type': 'selfie',
+          'documentId': 'selfie',
+          'documentName': 'Selfie Verification',
+          'status': 'verified',
+          'imageUrl': selfieUrl,
+          'faceMatchScore': confidence,
+          'verificationMethod': 'worker_signup_face_match',
+          'verifiedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+    return true;
   }
 
   Future<void> _skipVerification() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        _showError("User not signed in.");
+        _showError('User not signed in.');
         return;
       }
 
@@ -356,7 +304,12 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
           'ocrName': extractedName ?? '',
           'ocrNumber': extractedNumber ?? '',
           'verificationSkipped': true,
-          // removed location, address, phone/otp
+          'isOnboardingComplete': true,
+          'workerStatus': 'verification_pending',
+          'profileVisibility': false,
+          'visibleToUsers': false,
+          'visibilityBlockedReason': 'Identity verification is pending',
+          'verificationStatus': 'skipped',
         });
 
       await FirebaseFirestore.instance
@@ -367,90 +320,43 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, WorkerDashboardScreen.routeName);
     } catch (e, stack) {
-      debugPrint("❌ Error while skipping: $e\n$stack");
-      _showError("Failed to skip verification. Try again.");
+      debugPrint('Error while finishing without visibility: $e\n$stack');
+      _showError('Failed to finish setup. Try again.');
     }
-  }
-
-  Widget _buildUploadCard({
-    required String label,
-    required File? file,
-    required VoidCallback onPick,
-    required VoidCallback onRemove,
-  }) {
-    return GestureDetector(
-      onTap: onPick,
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.deepPurple.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.deepPurple),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.upload_file, color: Colors.deepPurple),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                file != null ? "Uploaded: ${file.path.split('/').last}" : label,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ),
-            if (file != null)
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.red),
-                onPressed: onRemove,
-              ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _submitVerification() async {
     if (_isSubmitting) return;
-    _isSubmitting = true;
-    if (mounted) setState(() {});
+    setState(() => _isSubmitting = true);
 
     try {
-      debugPrint("▶️ Verification started");
-
       if (selectedPrimaryId == null) {
-        _showError("Please select a primary ID type.");
+        _showError('Please select a primary ID type.');
         return;
       }
       if (primaryFront == null) {
-        _showError("Please upload the front side of your ID.");
+        _showError('Please upload the front side of your ID.');
         return;
       }
       if (primaryBack == null) {
-        _showError("Please upload the back side of your ID.");
+        _showError('Please upload the back side of your ID.');
         return;
       }
       if (selfie == null) {
-        _showError("Please upload a selfie.");
+        _showError('Please capture a selfie.');
         return;
       }
       if (!consentChecked) {
-        _showError("Please accept the consent.");
+        _showError('Please accept the verification consent.');
         return;
       }
-
-      debugPrint("✅ All fields validated");
 
       final isFaceMatch = await _validateSelfieWithProfile();
-      if (!isFaceMatch) {
-        debugPrint("❌ Face match failed");
-        return;
-      }
-      debugPrint("✅ Face match passed");
+      if (!isFaceMatch) return;
 
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        _showError("User not signed in.");
+        _showError('User not signed in.');
         return;
       }
 
@@ -465,17 +371,18 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
           'submittedAt': DateTime.now().toIso8601String(),
           'ocrName': extractedName ?? '',
           'ocrNumber': extractedNumber ?? '',
-          // removed location, address, phone/otp
+          'isOnboardingComplete': true,
+          'workerStatus': 'verification_submitted',
+          'profileVisibility': false,
+          'visibleToUsers': false,
+          'visibilityBlockedReason': 'Admin verification review pending',
+          'verificationStatus': 'submitted',
         });
 
-      debugPrint("🔁 Saving data to Firestore...");
       final result = await _authService.saveWorkerOnboardingData(dataToSave);
-      debugPrint("✅ Firestore save result: $result");
-
       if (result == null) {
         _clearImageCache();
         if (!mounted) return;
-        debugPrint("🚀 Navigating to dashboard");
         Navigator.pushReplacementNamed(
           context,
           WorkerDashboardScreen.routeName,
@@ -484,150 +391,366 @@ class _Step5VerifyScreenState extends State<Step5VerifyScreen> {
         _showError(result);
       }
     } catch (e, st) {
-      debugPrint("🔥 Exception in _submitVerification: $e\n$st");
-      _showError("Something went wrong during verification.");
+      debugPrint('Verification submit failed: $e\n$st');
+      _showError('Something went wrong during verification.');
     } finally {
-      _isSubmitting = false;
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  void _showError(String message) {
+    _showMessage(message, WorkableDesign.danger);
+  }
+
+  void _showMessage(String message, Color color) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Verify Identity"),
-        backgroundColor: Colors.deepPurple,
+    return WorkerOnboardingShell(
+      title: 'Verify your identity',
+      subtitle:
+          'Verified workers earn more trust. Your profile stays hidden from customers until verification is reviewed.',
+      step: 6,
+      totalSteps: 6,
+      bottom: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _isSubmitting ? null : _submitVerification,
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Submit for Review'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _isSubmitting ? null : _skipVerification,
+            child: const Text('Finish without visibility'),
+          ),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            LinearProgressIndicator(
-              value: 1.0,
-              backgroundColor: Colors.grey[300],
-              color: Colors.deepPurple,
+      children: [
+        _buildVisibilityWarning(),
+        const SizedBox(height: 14),
+        _buildIdCard(),
+        const SizedBox(height: 14),
+        _buildSelfieCard(),
+        const SizedBox(height: 14),
+        _buildConsentCard(),
+      ],
+    );
+  }
+
+  Widget _buildVisibilityWarning() {
+    return WorkerOnboardingCard(
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: WorkableDesign.warning.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              "Primary ID Verification",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            child: const Icon(
+              Icons.visibility_off_outlined,
+              color: WorkableDesign.warning,
             ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              value: selectedPrimaryId,
-              items: idOptions
-                  .map((id) => DropdownMenuItem(value: id, child: Text(id)))
-                  .toList(),
-              onChanged: (val) => setState(() => selectedPrimaryId = val),
-              decoration: const InputDecoration(
-                labelText: "Select Primary ID",
-                border: OutlineInputBorder(),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Skipping verification opens the worker dashboard, but your profile will not be visible to customers.',
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontSize: 12.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 16),
+          ),
+        ],
+      ),
+    );
+  }
 
-            _buildUploadCard(
-              label: "Upload Front Side",
-              file: primaryFront,
-              onPick: () => _pickImageFromGallery((f) async {
-                final compressed = await _compressToTemp(
-                  f,
-                  maxW: 800, // reduced from 1024
-                  maxH: 800, // reduced from 1024
-                  quality: 65,
-                );
-                try {
-                  if (await f.exists()) await f.delete();
-                } catch (_) {}
-                if (!mounted) return;
-                setState(() => primaryFront = compressed);
-                if (selectedPrimaryId != null) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) async {
-                    try {
-                      await _runOcrOnFrontImage(compressed);
-                    } catch (_) {}
-                  });
-                }
-              }),
-              onRemove: () => setState(() => primaryFront = null),
+  Widget _buildIdCard() {
+    return WorkerOnboardingCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Government ID',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
             ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Upload clear photos of the front and back side. OCR helps our review team check details faster.',
+            style: TextStyle(
+              color: WorkableDesign.muted,
+              fontSize: 12.5,
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            value: selectedPrimaryId,
+            items: idOptions
+                .map((id) => DropdownMenuItem(value: id, child: Text(id)))
+                .toList(),
+            onChanged: (val) => setState(() => selectedPrimaryId = val),
+            decoration: const InputDecoration(
+              labelText: 'Primary ID type',
+              prefixIcon: Icon(Icons.badge_outlined),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildUploadCard(
+            label: 'Upload front side',
+            file: primaryFront,
+            icon: Icons.credit_card_outlined,
+            onPick: () => _pickImageFromGallery(_handleFrontIdPicked),
+            onRemove: () => setState(() => primaryFront = null),
+          ),
+          _buildUploadCard(
+            label: 'Upload back side',
+            file: primaryBack,
+            icon: Icons.credit_card_outlined,
+            onPick: () => _pickImageFromGallery(_handleBackIdPicked),
+            onRemove: () => setState(() => primaryBack = null),
+          ),
+          if ((extractedName?.isNotEmpty ?? false) ||
+              (extractedNumber?.isNotEmpty ?? false))
+            _buildOcrResult(),
+        ],
+      ),
+    );
+  }
 
-            _buildUploadCard(
-              label: "Upload Back Side",
-              file: primaryBack,
-              onPick: () => _pickImageFromGallery((f) async {
-                final compressed = await _compressToTemp(
-                  f,
-                  maxW: 800, // reduced from 1024
-                  maxH: 800, // reduced from 1024
-                  quality: 65,
-                );
-                try {
-                  if (await f.exists()) await f.delete();
-                } catch (_) {}
-                if (!mounted) return;
-                setState(() => primaryBack = compressed);
-              }),
-              onRemove: () => setState(() => primaryBack = null),
-            ),
+  Future<void> _handleFrontIdPicked(File file) async {
+    final compressed = await _compressToTemp(
+      file,
+      maxW: 800,
+      maxH: 800,
+      quality: 65,
+    );
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => primaryFront = compressed);
+    if (selectedPrimaryId != null) {
+      await _runOcrOnFrontImage(compressed);
+    }
+  }
 
-            const SizedBox(height: 24),
-            const Text(
-              "Selfie (Face Match)",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
+  Future<void> _handleBackIdPicked(File file) async {
+    final compressed = await _compressToTemp(
+      file,
+      maxW: 800,
+      maxH: 800,
+      quality: 65,
+    );
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => primaryBack = compressed);
+  }
 
-            _buildUploadCard(
-              label: "Capture Selfie",
-              file: selfie,
-              onPick: () => _pickImageFromCamera((f) async {
-                // Let camera surfaces settle to avoid buffer starvation
-                await Future<void>.delayed(const Duration(milliseconds: 120));
-                if (!mounted) return;
-                // DO NOT recompress here — rely on image_picker's 640×640 output
-                setState(() => selfie = f);
-              }),
-              onRemove: () => setState(() => selfie = null),
+  Widget _buildSelfieCard() {
+    return WorkerOnboardingCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Selfie face match',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
             ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Capture a fresh selfie so we can match it with your profile photo.',
+            style: TextStyle(
+              color: WorkableDesign.muted,
+              fontSize: 12.5,
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildUploadCard(
+            label: 'Capture selfie',
+            file: selfie,
+            icon: Icons.photo_camera_outlined,
+            onPick: () =>
+                _pickImageFromCamera((file) => setState(() => selfie = file)),
+            onRemove: () => setState(() => selfie = null),
+          ),
+        ],
+      ),
+    );
+  }
 
-            const SizedBox(height: 16),
-            CheckboxListTile(
-              value: consentChecked,
-              onChanged: (val) => setState(() => consentChecked = val ?? false),
-              title: const Text(
-                "I consent to the use of my data for verification purposes.",
-              ),
-            ),
-
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _submitVerification,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text(
-                  "Complete Setup",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: _skipVerification,
-                child: const Text(
-                  "Skip for Now",
-                  style: TextStyle(fontSize: 14, color: Colors.deepPurple),
-                ),
-              ),
-            ),
-          ],
+  Widget _buildConsentCard() {
+    return WorkerOnboardingCard(
+      child: CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        value: consentChecked,
+        onChanged: (val) => setState(() => consentChecked = val ?? false),
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text(
+          'I consent to identity, document, and selfie checks for worker verification.',
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
+      ),
+    );
+  }
+
+  Widget _buildUploadCard({
+    required String label,
+    required File? file,
+    required VoidCallback onPick,
+    required VoidCallback onRemove,
+    IconData icon = Icons.upload_file_outlined,
+  }) {
+    final uploaded = file != null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onPick,
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        child: Ink(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: uploaded
+                ? WorkableDesign.success.withValues(alpha: 0.08)
+                : WorkableDesign.canvas,
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            border: Border.all(
+              color: uploaded
+                  ? WorkableDesign.success.withValues(alpha: 0.28)
+                  : WorkableDesign.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: uploaded
+                      ? WorkableDesign.success.withValues(alpha: 0.12)
+                      : WorkableDesign.accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  uploaded ? Icons.check_circle_outline : icon,
+                  color: uploaded
+                      ? WorkableDesign.success
+                      : WorkableDesign.accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      uploaded ? 'Uploaded' : label,
+                      style: const TextStyle(
+                        color: WorkableDesign.ink,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      uploaded ? file.path.split('/').last : 'Tap to add file',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: WorkableDesign.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (uploaded)
+                IconButton(
+                  tooltip: 'Remove',
+                  icon: const Icon(Icons.close, color: WorkableDesign.danger),
+                  onPressed: onRemove,
+                )
+              else
+                const Icon(
+                  Icons.add_circle_outline,
+                  color: WorkableDesign.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOcrResult() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: WorkableDesign.success.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        border: Border.all(
+          color: WorkableDesign.success.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.document_scanner_outlined,
+            color: WorkableDesign.success,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              [
+                if (extractedName?.isNotEmpty ?? false) extractedName,
+                if (extractedNumber?.isNotEmpty ?? false) extractedNumber,
+              ].whereType<String>().join(' | '),
+              style: const TextStyle(
+                color: WorkableDesign.ink,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

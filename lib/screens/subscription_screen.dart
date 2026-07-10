@@ -1,117 +1,147 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
 
 class SubscriptionScreen extends StatelessWidget {
   static const routeName = '/subscription';
 
   const SubscriptionScreen({super.key});
 
-  final List<Map<String, dynamic>> plans = const [
-    {
-      "title": "Basic Plan",
-      "price": "Free",
-      "features": [
-        "Limited job access",
-        "Basic support",
-        "No promotions",
+  static const _plans = [
+    _Plan(
+      title: 'Starter',
+      price: 'Free',
+      status: 'Active',
+      features: [
+        'Standard marketplace access',
+        'Booking and profile tools',
+        'Basic support',
       ],
-    },
-    {
-      "title": "Pro Plan",
-      "price": "₹199/month",
-      "features": [
-        "Unlimited job access",
-        "Priority support",
-        "Highlighted in search",
-        "Withdrawal access",
+    ),
+    _Plan(
+      title: 'Growth',
+      price: 'Planned',
+      status: 'Coming later',
+      features: [
+        'Profile boost after trust checks',
+        'Advanced opportunity insights',
+        'Priority support queue',
       ],
-    },
-    {
-      "title": "Elite Plan",
-      "price": "₹399/month",
-      "features": [
-        "Everything in Pro",
-        "Top search ranking",
-        "Featured profile badge",
-        "Personal account manager",
+    ),
+    _Plan(
+      title: 'Premium Verified',
+      price: 'Planned',
+      status: 'Coming later',
+      features: [
+        'Premium trust badge',
+        'Advanced portfolio placement',
+        'Business growth analytics',
       ],
-    },
+    ),
   ];
 
-  void _subscribeToPlan(BuildContext context, String plan) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text("Subscribe to $plan"),
-        content: Text("Your subscription to $plan has been activated."),
-        actions: [
-          TextButton(
-            child: Text("OK", style: TextStyle(color: Colors.deepPurple)),
-            onPressed: () => Navigator.pop(context),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _planCard(BuildContext context, Map<String, dynamic> plan) {
-    return Card(
-      elevation: 3,
-      margin: EdgeInsets.only(bottom: 20),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(title: const Text('Membership Plans')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(WorkableDesign.pagePadding),
           children: [
-            Text(plan['title'],
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(plan['price'], style: TextStyle(color: Colors.deepPurple)),
-            SizedBox(height: 12),
-            ...List.generate(plan['features'].length, (i) {
-              return Row(
-                children: [
-                  Icon(Icons.check, color: Colors.green, size: 18),
-                  SizedBox(width: 6),
-                  Expanded(child: Text(plan['features'][i])),
-                ],
-              );
-            }),
-            SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _subscribeToPlan(context, plan['title']),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: Text("Subscribe"),
+            const WorkablePageHeader(
+              title: 'Membership is planned',
+              subtitle:
+                  'Paid plans will be enabled only after pricing, payment, tax, refund, and trust rules are production-ready.',
+              icon: LucideIcons.badgeCheck,
+            ),
+            const SizedBox(height: 16),
+            ..._plans.map(_PlanCard.new),
+            const SizedBox(height: 8),
+            const WorkableSectionCard(
+              child: WorkableInfoRow(
+                icon: LucideIcons.info,
+                text:
+                    'For now, workers can keep improving visibility through profile completeness, verification, ratings, portfolio, and response quality.',
               ),
-            )
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+class _PlanCard extends StatelessWidget {
+  const _PlanCard(this.plan);
+
+  final _Plan plan;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Subscription Plans"),
-        backgroundColor: Colors.deepPurple,
-      ),
-      body: ListView(
-        padding: EdgeInsets.all(20),
-        children: [
-          Text(
-            "Choose a plan that suits your needs",
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 20),
-          ...plans.map((plan) => _planCard(context, plan)).toList(),
-        ],
+    final active = plan.status == 'Active';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: WorkableSectionCard(
+        borderColor: active
+            ? WorkableDesign.success.withValues(alpha: 0.28)
+            : WorkableDesign.border,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    plan.title,
+                    style: const TextStyle(
+                      color: WorkableDesign.ink,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                WorkableStatusPill(
+                  label: plan.status,
+                  color: active ? WorkableDesign.success : WorkableDesign.muted,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              plan.price,
+              style: const TextStyle(
+                color: WorkableDesign.primary,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...plan.features.map(
+              (feature) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: WorkableInfoRow(icon: LucideIcons.check, text: feature),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _Plan {
+  const _Plan({
+    required this.title,
+    required this.price,
+    required this.status,
+    required this.features,
+  });
+
+  final String title;
+  final String price;
+  final String status;
+  final List<String> features;
 }

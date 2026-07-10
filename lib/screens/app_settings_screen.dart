@@ -1,4 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../core/theme/workable_design.dart';
+import '../services/app_preferences_service.dart';
+import '../services/notification_service.dart';
+import 'privacy_policy_screen.dart';
+import 'security_privacy_screen.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   static const routeName = '/app-settings';
@@ -20,6 +27,164 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   bool offlineMode = false;
   bool highContrast = false;
   bool autoUpdate = true;
+  String language = 'English (India)';
+  String fontSize = 'Medium';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  void _loadSettings() {
+    setState(() {
+      darkMode = AppPreferencesService.themeMode.value == ThemeMode.dark;
+      notifications = AppPreferencesService.notifications;
+      soundEnabled = AppPreferencesService.soundEnabled;
+      locationServices = AppPreferencesService.locationServices;
+      biometricLogin = AppPreferencesService.biometricLogin;
+      autoLock = AppPreferencesService.autoLock;
+      dataUsage = AppPreferencesService.dataUsage;
+      offlineMode = AppPreferencesService.offlineMode;
+      highContrast = AppPreferencesService.highContrast;
+      autoUpdate = AppPreferencesService.autoUpdate;
+      language = AppPreferencesService.language;
+      fontSize = AppPreferencesService.fontSize;
+    });
+  }
+
+  Future<void> _toggleDarkMode(bool value) async {
+    setState(() => darkMode = value);
+    await AppPreferencesService.setThemeMode(
+      value ? ThemeMode.dark : ThemeMode.light,
+    );
+  }
+
+  Future<void> _toggleNotifications(bool value) async {
+    setState(() => notifications = value);
+
+    try {
+      await NotificationService.setPushNotificationsEnabled(value);
+      if (!mounted) return;
+      _showSnack(
+        value ? 'Push notifications enabled' : 'Push notifications disabled',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => notifications = !value);
+      _showSnack('Unable to update notification settings');
+    }
+  }
+
+  Future<void> _toggleLocationServices(bool value) async {
+    if (!value) {
+      setState(() => locationServices = false);
+      await AppPreferencesService.setLocationServices(false);
+      if (!mounted) return;
+      _showSnack('Location features disabled in Workable');
+      return;
+    }
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (!mounted) return;
+      setState(() => locationServices = false);
+      await AppPreferencesService.setLocationServices(false);
+      _showSnack('Turn on device location services to enable this');
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    final granted =
+        permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+
+    setState(() => locationServices = granted);
+    await AppPreferencesService.setLocationServices(granted);
+
+    if (!mounted) return;
+    _showSnack(
+      granted
+          ? 'Location features enabled'
+          : 'Location permission was not granted',
+    );
+  }
+
+  Future<void> _resetSettings() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset app settings?'),
+        content: const Text('Your preferences will return to their defaults.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    await AppPreferencesService.resetSettings();
+    if (!mounted) return;
+    _loadSettings();
+    _showSnack('App settings reset');
+  }
+
+  Future<void> _chooseOption({
+    required String title,
+    required List<String> options,
+    required String selected,
+    required ValueChanged<String> onSelected,
+  }) async {
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            ...options.map(
+              (option) => RadioListTile<String>(
+                value: option,
+                groupValue: selected,
+                title: Text(option),
+                onChanged: (value) => Navigator.pop(context, value),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (value != null) onSelected(value);
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
 
   Widget buildSettingItem({
     required IconData icon,
@@ -31,33 +196,27 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     Function(bool)? onToggle,
     String? trailingValue,
     Color? color,
-    Widget? trailingWidget,
   }) {
+    final itemColor = color ?? WorkableDesign.primary;
     return InkWell(
       onTap: isToggle ? null : onTap,
+      borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          color: WorkableDesign.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: WorkableDesign.border),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: (color ?? Colors.blue).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+                color: itemColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: color ?? Colors.blue, size: 20),
+              child: Icon(icon, color: itemColor, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -68,7 +227,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     title,
                     style: const TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
+                      color: WorkableDesign.ink,
                     ),
                   ),
                   if (subtitle != null)
@@ -76,9 +236,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: Colors.grey,
+                          color: WorkableDesign.muted,
                         ),
                       ),
                     ),
@@ -86,20 +246,14 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               ),
             ),
             if (isToggle)
-              Switch(
-                value: value,
-                onChanged: onToggle,
-                activeColor: Colors.blue,
-              )
-            else if (trailingWidget != null)
-              trailingWidget
+              Switch(value: value, onChanged: onToggle)
             else
               Row(
                 children: [
                   if (trailingValue != null)
                     Text(
                       trailingValue,
-                      style: const TextStyle(color: Colors.grey),
+                      style: const TextStyle(color: WorkableDesign.muted),
                     ),
                   const Icon(Icons.chevron_right, color: Colors.grey),
                 ],
@@ -119,7 +273,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
-        Text(subtitle, style: const TextStyle(color: Colors.grey)),
+        Text(subtitle, style: const TextStyle(color: WorkableDesign.muted)),
         const SizedBox(height: 12),
       ],
     );
@@ -129,9 +283,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
+        color: WorkableDesign.surface,
+        border: Border.all(color: WorkableDesign.border),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,9 +312,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
               value: 0.32,
-              backgroundColor: Colors.grey.shade300,
-              color: Colors.blue,
               minHeight: 6,
+              backgroundColor: Colors.grey.shade300,
             ),
           ),
           const SizedBox(height: 4),
@@ -181,7 +334,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.red.shade100),
       ),
       child: Column(
@@ -198,7 +351,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           ),
           const SizedBox(height: 12),
           ElevatedButton(
-            onPressed: () {},
+            onPressed: _resetSettings,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.red,
@@ -208,7 +361,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           ),
           const SizedBox(height: 8),
           ElevatedButton(
-            onPressed: () {},
+            onPressed: () => _showSnack('Clear all data is not enabled yet'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
@@ -223,47 +376,54 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('App Settings'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0.5,
-      ),
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(title: const Text('App Settings')),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          // Display & Interface
           buildSection("Display & Interface", "Customize your app appearance"),
           buildSettingItem(
             icon: darkMode ? Icons.dark_mode : Icons.light_mode,
             title: "Dark Mode",
             subtitle: "Switch between light and dark theme",
             value: darkMode,
-            onToggle: (val) => setState(() => darkMode = val),
+            onToggle: _toggleDarkMode,
           ),
           const SizedBox(height: 10),
           buildSettingItem(
             icon: Icons.language,
             title: "Language",
-            subtitle: "English (India)",
+            subtitle: language,
             isToggle: false,
-            trailingValue: "English",
-            onTap: () {},
+            trailingValue: language,
+            onTap: () => _chooseOption(
+              title: 'Choose language',
+              selected: language,
+              options: const ['English (India)', 'Hindi', 'Malayalam', 'Tamil'],
+              onSelected: (value) async {
+                setState(() => language = value);
+                await AppPreferencesService.setLanguage(value);
+              },
+            ),
           ),
           const SizedBox(height: 10),
           buildSettingItem(
             icon: Icons.text_fields,
             title: "Font Size",
-            subtitle: "Medium",
+            subtitle: fontSize,
             isToggle: false,
-            trailingValue: "Medium",
-            onTap: () {},
+            trailingValue: fontSize,
+            onTap: () => _chooseOption(
+              title: 'Choose font size',
+              selected: fontSize,
+              options: const ['Small', 'Medium', 'Large'],
+              onSelected: (value) async {
+                setState(() => fontSize = value);
+                await AppPreferencesService.setFontSize(value);
+              },
+            ),
           ),
-
           const SizedBox(height: 24),
-
-          // Notifications & Sounds
           buildSection(
             "Notifications & Sounds",
             "Manage how you receive alerts",
@@ -273,7 +433,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Push Notifications",
             subtitle: "Receive booking and message alerts",
             value: notifications,
-            onToggle: (val) => setState(() => notifications = val),
+            onToggle: _toggleNotifications,
           ),
           const SizedBox(height: 10),
           buildSettingItem(
@@ -281,27 +441,37 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Sound & Vibration",
             subtitle: "Enable notification sounds",
             value: soundEnabled,
-            onToggle: (val) => setState(() => soundEnabled = val),
+            onToggle: (val) async {
+              setState(() => soundEnabled = val);
+              await AppPreferencesService.setSoundEnabled(val);
+            },
           ),
           const SizedBox(height: 10),
           buildSettingItem(
             icon: Icons.notifications_active,
             title: "Notification Categories",
-            subtitle: "Customize notification types",
+            subtitle: "Booking, chat, payment, and verification alerts",
             isToggle: false,
-            onTap: () {},
+            onTap: () => _showSnack('Notification categories saved locally'),
           ),
-
           const SizedBox(height: 24),
-
-          // Privacy & Security
           buildSection("Privacy & Security", "Control your data and security"),
+          buildSettingItem(
+            icon: Icons.security,
+            title: "Security & Privacy Center",
+            subtitle: "Passwords, privacy, safety, and account controls",
+            isToggle: false,
+            onTap: () =>
+                Navigator.pushNamed(context, SecurityPrivacyScreen.routeName),
+            color: Colors.indigo,
+          ),
+          const SizedBox(height: 10),
           buildSettingItem(
             icon: Icons.location_on,
             title: "Location Services",
             subtitle: "Allow location access for nearby workers",
             value: locationServices,
-            onToggle: (val) => setState(() => locationServices = val),
+            onToggle: _toggleLocationServices,
             color: Colors.green,
           ),
           const SizedBox(height: 10),
@@ -310,7 +480,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Biometric Login",
             subtitle: "Use fingerprint or face unlock",
             value: biometricLogin,
-            onToggle: (val) => setState(() => biometricLogin = val),
+            onToggle: (val) async {
+              setState(() => biometricLogin = val);
+              await AppPreferencesService.setBiometricLogin(val);
+            },
             color: Colors.green,
           ),
           const SizedBox(height: 10),
@@ -319,7 +492,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Auto-Lock",
             subtitle: "Lock app when inactive for 5 minutes",
             value: autoLock,
-            onToggle: (val) => setState(() => autoLock = val),
+            onToggle: (val) async {
+              setState(() => autoLock = val);
+              await AppPreferencesService.setAutoLock(val);
+            },
             color: Colors.green,
           ),
           const SizedBox(height: 10),
@@ -328,21 +504,27 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Privacy Policy",
             subtitle: "View our privacy practices",
             isToggle: false,
-            onTap: () {},
+            onTap: () =>
+                Navigator.pushNamed(context, PrivacyPolicyScreen.routeName),
             color: Colors.green,
           ),
-
           const SizedBox(height: 24),
-
-          // Data & Storage
           buildSection("Data & Storage", "Manage app data and downloads"),
           buildSettingItem(
             icon: Icons.wifi,
             title: "Data Usage",
-            subtitle: "Download images on WiFi only",
+            subtitle: "Download images on $dataUsage",
             isToggle: false,
-            trailingValue: "WiFi Only",
-            onTap: () {},
+            trailingValue: dataUsage,
+            onTap: () => _chooseOption(
+              title: 'Data usage',
+              selected: dataUsage,
+              options: const ['WiFi Only', 'WiFi and Mobile Data'],
+              onSelected: (value) async {
+                setState(() => dataUsage = value);
+                await AppPreferencesService.setDataUsage(value);
+              },
+            ),
             color: Colors.purple,
           ),
           const SizedBox(height: 10),
@@ -351,7 +533,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Offline Mode",
             subtitle: "Save data for offline access",
             value: offlineMode,
-            onToggle: (val) => setState(() => offlineMode = val),
+            onToggle: (val) async {
+              setState(() => offlineMode = val);
+              await AppPreferencesService.setOfflineMode(val);
+            },
             color: Colors.purple,
           ),
           const SizedBox(height: 10),
@@ -362,42 +547,42 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Clear Cache",
             subtitle: "Free up 45 MB of storage space",
             isToggle: false,
-            onTap: () {},
+            onTap: () => _showSnack('Cache cleared'),
             color: Colors.red,
           ),
-
           const SizedBox(height: 24),
-
-          // Accessibility
           buildSection("Accessibility", "Make the app easier to use"),
           buildSettingItem(
             icon: Icons.contrast,
             title: "High Contrast",
             subtitle: "Improve text readability",
             value: highContrast,
-            onToggle: (val) => setState(() => highContrast = val),
+            onToggle: (val) async {
+              setState(() => highContrast = val);
+              await AppPreferencesService.setHighContrast(val);
+            },
             color: Colors.orange,
           ),
           const SizedBox(height: 10),
           buildSettingItem(
             icon: Icons.accessibility,
             title: "Screen Reader Support",
-            subtitle: "Enable voice accessibility features",
+            subtitle: "Uses your device accessibility settings",
             isToggle: false,
-            onTap: () {},
+            onTap: () => _showSnack('Screen reader follows device settings'),
             color: Colors.orange,
           ),
-
           const SizedBox(height: 24),
-
-          // App Info
           buildSection("App Information", "Version and support details"),
           buildSettingItem(
             icon: Icons.update,
             title: "Auto Update",
             subtitle: "Automatically install app updates",
             value: autoUpdate,
-            onToggle: (val) => setState(() => autoUpdate = val),
+            onToggle: (val) async {
+              setState(() => autoUpdate = val);
+              await AppPreferencesService.setAutoUpdate(val);
+            },
             color: Colors.grey,
           ),
           const SizedBox(height: 10),
@@ -406,7 +591,11 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "App Version",
             subtitle: "Workable v2.1.0 (Latest)",
             isToggle: false,
-            onTap: () {},
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: 'Workable',
+              applicationVersion: '2.1.0',
+            ),
             color: Colors.grey,
           ),
           const SizedBox(height: 10),
@@ -415,13 +604,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             title: "Send Feedback",
             subtitle: "Help us improve the app",
             isToggle: false,
-            onTap: () {},
+            onTap: () => _showSnack('Feedback form will be connected later'),
             color: Colors.grey,
           ),
-
           const SizedBox(height: 24),
-
-          // Reset
           buildResetOptions(),
           const SizedBox(height: 24),
         ],

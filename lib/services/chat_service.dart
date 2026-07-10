@@ -5,6 +5,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path/path.dart' as path;
 
+import 'app_preferences_service.dart';
+
 class ChatService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -23,6 +25,30 @@ class ChatService {
         .collection('messages')
         .orderBy('timestamp')
         .snapshots();
+  }
+
+  Future<void> ensureChatForBooking({
+    required String otherUserId,
+    required String otherUserName,
+    required String userRole,
+    String? bookingId,
+    String? service,
+  }) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null || otherUserId.trim().isEmpty) return;
+
+    final chatId = getChatId(uid, otherUserId);
+    final participants = chatId.split('_');
+    await _firestore.collection('chats').doc(chatId).set({
+      'participants': participants,
+      'bookingId': bookingId,
+      'service': service,
+      'chatWithName': otherUserName,
+      'createdFrom': 'booking',
+      'createdByRole': userRole,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'unreadCounts.$uid': 0,
+    }, SetOptions(merge: true));
   }
 
   /// Sends a text message
@@ -68,10 +94,14 @@ class ChatService {
 
     // 2. Update parent chat metadata
     final participants = chatId.split('_');
+    final otherUserId = participants.firstWhere((id) => id != uid);
     await _firestore.collection('chats').doc(chatId).set({
       'participants': participants,
       'lastMessage': text.trim(),
+      'lastMessageType': 'text',
       'timestamp': now,
+      'unreadCounts.$uid': 0,
+      'unreadCounts.$otherUserId': FieldValue.increment(1),
     }, SetOptions(merge: true));
   }
 
@@ -79,6 +109,7 @@ class ChatService {
   Future<void> sendImageMessage(String chatId, File imageFile) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
+    final now = FieldValue.serverTimestamp();
 
     final imageName = path.basename(imageFile.path);
     final ref = _storage.ref().child('chat_images/$chatId/$imageName');
@@ -86,22 +117,36 @@ class ChatService {
     await ref.putFile(imageFile);
     final imageUrl = await ref.getDownloadURL();
 
-    await _firestore
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages')
-        .add({
-          'senderId': uid,
-          'imageUrl': imageUrl,
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-        });
+    await _firestore.collection('chats').doc(chatId).collection('messages').add(
+      {
+        'senderId': uid,
+        'imageUrl': imageUrl,
+        'timestamp': now,
+        'isRead': false,
+      },
+    );
+
+    final participants = chatId.split('_');
+    final otherUserId = participants.firstWhere((id) => id != uid);
+    await _firestore.collection('chats').doc(chatId).set({
+      'participants': participants,
+      'lastMessage': 'Photo',
+      'lastMessageType': 'image',
+      'timestamp': now,
+      'unreadCounts.$uid': 0,
+      'unreadCounts.$otherUserId': FieldValue.increment(1),
+    }, SetOptions(merge: true));
   }
 
   /// Sends current location as message
   Future<void> sendLocationMessage(String chatId) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
+    final now = FieldValue.serverTimestamp();
+
+    if (!AppPreferencesService.locationServices) {
+      throw Exception("Location services are disabled in app settings");
+    }
 
     final permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
@@ -113,16 +158,25 @@ class ChatService {
     final locationUrl =
         'https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}';
 
-    await _firestore
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages')
-        .add({
-          'senderId': uid,
-          'locationUrl': locationUrl,
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-        });
+    await _firestore.collection('chats').doc(chatId).collection('messages').add(
+      {
+        'senderId': uid,
+        'locationUrl': locationUrl,
+        'timestamp': now,
+        'isRead': false,
+      },
+    );
+
+    final participants = chatId.split('_');
+    final otherUserId = participants.firstWhere((id) => id != uid);
+    await _firestore.collection('chats').doc(chatId).set({
+      'participants': participants,
+      'lastMessage': 'Location shared',
+      'lastMessageType': 'location',
+      'timestamp': now,
+      'unreadCounts.$uid': 0,
+      'unreadCounts.$otherUserId': FieldValue.increment(1),
+    }, SetOptions(merge: true));
   }
 
   /// Marks all unread messages from other user as read
@@ -141,6 +195,10 @@ class ChatService {
     for (final doc in query.docs) {
       await doc.reference.update({'isRead': true});
     }
+
+    await _firestore.collection('chats').doc(chatId).set({
+      'unreadCounts.$uid': 0,
+    }, SetOptions(merge: true));
   }
 
   /// Updates typing status (role: 'customer' or 'worker')

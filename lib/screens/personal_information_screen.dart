@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
+import 'add_new_address_screen.dart';
+import 'change_password_screen.dart';
+import 'government_id_verification_screen.dart';
+import 'identity_verification_screen.dart';
+import 'pan_card_verification_screen.dart';
 
 class PersonalInformationScreen extends StatefulWidget {
   static const routeName = '/personal-information';
 
-  const PersonalInformationScreen({Key? key}) : super(key: key);
+  const PersonalInformationScreen({super.key});
 
   @override
   State<PersonalInformationScreen> createState() =>
@@ -17,7 +25,12 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   final userId = FirebaseAuth.instance.currentUser?.uid;
   late DocumentReference userDoc;
 
-  bool isEditing = false;
+  bool _isLoading = true;
+
+  // BUG FIX 1: No edit mode toggle — page is always editable.
+  // We track the original (saved) values to know if anything changed.
+  Map<String, String> _originalValues = {};
+
   List<Map<String, dynamic>> addresses = [];
 
   final TextEditingController firstNameController = TextEditingController();
@@ -32,9 +45,66 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   final TextEditingController emergencyPhoneController =
       TextEditingController();
 
-  String gender = "Male";
-  String preferredLanguage = "English";
-  String emergencyRelation = "Spouse";
+  String gender = 'Male';
+  String preferredLanguage = 'English';
+  String emergencyRelation = 'Spouse';
+  String? profileImageUrl;
+
+  Map<String, dynamic> verifications = {};
+  String passwordLastUpdated = 'Unknown';
+
+  // BUG FIX 2: Validation error string for alt phone
+  String? _altPhoneError;
+
+  // BUG FIX 1: True when any field differs from the last saved snapshot
+  bool get _hasChanges {
+    if (_isLoading) return false;
+    return firstNameController.text.trim() !=
+            (_originalValues['firstName'] ?? '') ||
+        lastNameController.text.trim() != (_originalValues['lastName'] ?? '') ||
+        altPhoneController.text.trim() != (_originalValues['altPhone'] ?? '') ||
+        dobController.text.trim() != (_originalValues['dob'] ?? '') ||
+        occupationController.text.trim() !=
+            (_originalValues['occupation'] ?? '') ||
+        companyController.text.trim() != (_originalValues['company'] ?? '') ||
+        emergencyNameController.text.trim() !=
+            (_originalValues['emergencyName'] ?? '') ||
+        emergencyPhoneController.text.trim() !=
+            (_originalValues['emergencyPhone'] ?? '') ||
+        gender != (_originalValues['gender'] ?? 'Male') ||
+        preferredLanguage !=
+            (_originalValues['preferredLanguage'] ?? 'English') ||
+        emergencyRelation != (_originalValues['emergencyRelation'] ?? 'Spouse');
+  }
+
+  // BUG FIX 2: Alt phone is valid if empty OR exactly 10 digits
+  bool get _isAltPhoneValid {
+    final val = altPhoneController.text.trim();
+    return val.isEmpty || val.length == 10;
+  }
+
+  // BUG FIX 3: Emergency contact is valid if all empty OR name+10-digit phone both filled
+  bool get _isEmergencyContactValid {
+    final name = emergencyNameController.text.trim();
+    final phone = emergencyPhoneController.text.trim();
+    final anyFilled = name.isNotEmpty || phone.isNotEmpty;
+    if (!anyFilled) return true;
+    return name.isNotEmpty && phone.length == 10;
+  }
+
+  bool get _canSave =>
+      _hasChanges && _isAltPhoneValid && _isEmergencyContactValid;
+
+  List<TextEditingController> get _editableControllers => [
+    firstNameController,
+    lastNameController,
+    altPhoneController,
+    dobController,
+    occupationController,
+    companyController,
+    emergencyNameController,
+    emergencyPhoneController,
+  ];
 
   @override
   void initState() {
@@ -43,19 +113,51 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
       userDoc = FirebaseFirestore.instance.collection('users').doc(userId);
       _loadUserData();
     }
+    // BUG FIX 1: Listen to every editable controller to recheck _hasChanges
+    for (final c in _editableControllers) {
+      c.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    // BUG FIX 2: Live validation for alt phone
+    final alt = altPhoneController.text.trim();
+    setState(() {
+      _altPhoneError = (alt.isNotEmpty && alt.length != 10)
+          ? 'Enter a valid 10-digit phone number'
+          : null;
+    });
   }
 
   Future<void> _loadUserData() async {
     try {
       final snapshot = await userDoc.get();
-      final data = snapshot.data() as Map<String, dynamic>?; // ✅ FIXED
+      final data = snapshot.data() as Map<String, dynamic>?;
 
       if (data != null) {
+        String pwUpdated = 'Unknown';
+        final pwTimestamp = data['passwordUpdatedAt'];
+        if (pwTimestamp is Timestamp) {
+          final dt = pwTimestamp.toDate();
+          final diff = DateTime.now().difference(dt);
+          if (diff.inDays < 30) {
+            pwUpdated = '${diff.inDays} days ago';
+          } else if (diff.inDays < 365) {
+            pwUpdated = '${(diff.inDays / 30).floor()} months ago';
+          } else {
+            pwUpdated = '${(diff.inDays / 365).floor()} years ago';
+          }
+        }
+
         setState(() {
           firstNameController.text = data['firstName'] ?? '';
           lastNameController.text = data['lastName'] ?? '';
-          emailController.text = data['email'] ?? '';
-          phoneController.text = data['phoneNumber'] ?? '';
+          emailController.text =
+              data['email'] ?? FirebaseAuth.instance.currentUser?.email ?? '';
+          phoneController.text =
+              data['phoneNumber'] ??
+              FirebaseAuth.instance.currentUser?.phoneNumber ??
+              '';
           altPhoneController.text = data['altPhone'] ?? '';
           dobController.text = data['dob'] ?? '';
           occupationController.text = data['occupation'] ?? '';
@@ -65,35 +167,65 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           gender = data['gender'] ?? 'Male';
           preferredLanguage = data['preferredLanguage'] ?? 'English';
           emergencyRelation = data['emergencyRelation'] ?? 'Spouse';
+          profileImageUrl = data['profileImageUrl'] ?? '';
+          verifications = Map<String, dynamic>.from(
+            data['verifications'] ?? {},
+          );
+          passwordLastUpdated = pwUpdated;
+          _isLoading = false;
         });
+
+        // BUG FIX 1: Snapshot loaded values as the saved baseline
+        _snapshotOriginalValues();
 
         addresses =
             (data['addresses'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e))
                 .toList() ??
             [];
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint('Error loading user data: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _showSaveDialog() async {
+  void _snapshotOriginalValues() {
+    _originalValues = {
+      'firstName': firstNameController.text.trim(),
+      'lastName': lastNameController.text.trim(),
+      'altPhone': altPhoneController.text.trim(),
+      'dob': dobController.text.trim(),
+      'occupation': occupationController.text.trim(),
+      'company': companyController.text.trim(),
+      'emergencyName': emergencyNameController.text.trim(),
+      'emergencyPhone': emergencyPhoneController.text.trim(),
+      'gender': gender,
+      'preferredLanguage': preferredLanguage,
+      'emergencyRelation': emergencyRelation,
+    };
+  }
+
+  Future<void> _saveChanges() async {
+    if (!_canSave) return;
+
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Save Changes?"),
+        title: const Text('Save Changes?'),
         content: const Text(
-          "Do you want to save the changes made to your profile?",
+          'Do you want to save the changes made to your profile?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancel"),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("Save"),
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -104,8 +236,6 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
         await userDoc.update({
           'firstName': firstNameController.text.trim(),
           'lastName': lastNameController.text.trim(),
-          'email': emailController.text.trim(),
-          'phoneNumber': phoneController.text.trim(),
           'altPhone': altPhoneController.text.trim(),
           'dob': dobController.text.trim(),
           'occupation': occupationController.text.trim(),
@@ -116,23 +246,57 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           'preferredLanguage': preferredLanguage,
           'emergencyRelation': emergencyRelation,
           'addresses': addresses,
+          'profileUpdatedAt': FieldValue.serverTimestamp(),
         });
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Profile changes saved.')));
-
-        setState(() => isEditing = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated successfully.')),
+          );
+          // BUG FIX 1: Update baseline so Save fades out again
+          _snapshotOriginalValues();
+          setState(() {});
+        }
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error saving profile: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error saving profile: $e')));
+        }
       }
+    }
+  }
+
+  Future<void> _pickDateOfBirth() async {
+    DateTime? initial;
+    if (dobController.text.isNotEmpty) {
+      try {
+        initial = DateFormat('dd/MM/yyyy').parse(dobController.text);
+      } catch (_) {
+        initial = null;
+      }
+    }
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? DateTime(1990, 1, 1),
+      firstDate: DateTime(1920),
+      lastDate: DateTime.now().subtract(const Duration(days: 365 * 5)),
+      helpText: 'Select Date of Birth',
+    );
+
+    if (picked != null) {
+      setState(() {
+        dobController.text = DateFormat('dd/MM/yyyy').format(picked);
+      });
     }
   }
 
   @override
   void dispose() {
+    for (final c in _editableControllers) {
+      c.removeListener(_onFieldChanged);
+    }
     firstNameController.dispose();
     lastNameController.dispose();
     emailController.dispose();
@@ -152,22 +316,38 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
     return '${first.isNotEmpty ? first[0] : ''}${last.isNotEmpty ? last[0] : ''}';
   }
 
-  // Your UI widgets (textInput, dropdownField, sectionCard) remain unchanged...
-  // Your entire `build()` method remains unchanged...
+  double calculateProfileCompletion() {
+    int filled = 0;
+    const int total = 10;
+    if (firstNameController.text.trim().isNotEmpty) filled++;
+    if (lastNameController.text.trim().isNotEmpty) filled++;
+    if (emailController.text.trim().isNotEmpty) filled++;
+    if (phoneController.text.trim().isNotEmpty) filled++;
+    if (dobController.text.trim().isNotEmpty) filled++;
+    if (occupationController.text.trim().isNotEmpty) filled++;
+    if (companyController.text.trim().isNotEmpty) filled++;
+    if (emergencyNameController.text.trim().isNotEmpty) filled++;
+    if (emergencyPhoneController.text.trim().isNotEmpty) filled++;
+    if (gender.isNotEmpty) filled++;
+    return (filled / total) * 100;
+  }
+
+  // ─── Reusable widgets ──────────────────────────────────────────────────────
 
   Widget sectionCard({required String title, required List<Widget> children}) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: WorkableSectionCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                color: WorkableDesign.ink,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 16),
             ...children,
@@ -182,8 +362,17 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
     TextEditingController controller, {
     bool required = false,
     bool verified = false,
+    bool alwaysReadOnly = false,
     TextInputType? type,
+    VoidCallback? onTap,
+    String? errorText,
+    // BUG FIX 2: digit enforcement and length cap
+    bool digitsOnly = false,
+    int? maxLength,
+    // BUG FIX 3: grey-out when disabled
+    bool disabled = false,
   }) {
+    final effectivelyReadOnly = alwaysReadOnly || disabled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -197,25 +386,52 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
             const Spacer(),
             if (verified)
               const Icon(Icons.check_circle, color: Colors.green, size: 18),
+            if (alwaysReadOnly)
+              const Padding(
+                padding: EdgeInsets.only(left: 4),
+                child: Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+              ),
           ],
         ),
         const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          enabled: isEditing,
-          keyboardType: type ?? TextInputType.text,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: !isEditing,
-            fillColor: isEditing ? null : Colors.grey[100],
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 12,
-              horizontal: 12,
+        GestureDetector(
+          onTap: onTap,
+          child: AbsorbPointer(
+            absorbing: onTap != null,
+            child: TextField(
+              controller: controller,
+              enabled: !effectivelyReadOnly,
+              readOnly: onTap != null,
+              keyboardType: type ?? TextInputType.text,
+              inputFormatters: [
+                if (digitsOnly) FilteringTextInputFormatter.digitsOnly,
+                if (maxLength != null)
+                  LengthLimitingTextInputFormatter(maxLength),
+              ],
+              decoration: InputDecoration(
+                isDense: true,
+                filled: effectivelyReadOnly,
+                fillColor: alwaysReadOnly
+                    ? Colors.grey[200]
+                    : disabled
+                    ? Colors.grey[100]
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                errorText: errorText,
+                suffixIcon: onTap != null
+                    ? const Icon(Icons.calendar_today_outlined, size: 18)
+                    : null,
+              ),
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: errorText != null ? 4 : 12),
       ],
     );
   }
@@ -226,6 +442,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
     List<String> options,
     void Function(String?) onChanged, {
     bool required = false,
+    bool disabled = false, // BUG FIX 3
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,6 +456,8 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           value: value,
           decoration: InputDecoration(
             isDense: true,
+            filled: disabled,
+            fillColor: disabled ? Colors.grey[100] : null,
             contentPadding: const EdgeInsets.symmetric(
               vertical: 12,
               horizontal: 12,
@@ -248,78 +467,140 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           items: options
               .map((opt) => DropdownMenuItem(value: opt, child: Text(opt)))
               .toList(),
-          onChanged: isEditing ? onChanged : null,
+          onChanged: disabled ? null : onChanged,
         ),
         const SizedBox(height: 12),
       ],
     );
   }
 
-  double calculateProfileCompletion() {
-    int filled = 0;
-    int total = 10;
+  Widget _verificationTile(String label, String firestoreKey) {
+    final status = (verifications[firestoreKey] as String? ?? 'not_uploaded')
+        .toLowerCase();
+    final isVerified = status == 'verified';
+    final isPending = status == 'pending';
 
-    if (firstNameController.text.trim().isNotEmpty) filled++;
-    if (lastNameController.text.trim().isNotEmpty) filled++;
-    if (emailController.text.trim().isNotEmpty) filled++;
-    if (phoneController.text.trim().isNotEmpty) filled++;
-    if (dobController.text.trim().isNotEmpty) filled++;
-    if (occupationController.text.trim().isNotEmpty) filled++;
-    if (companyController.text.trim().isNotEmpty) filled++;
-    if (emergencyNameController.text.trim().isNotEmpty) filled++;
-    if (emergencyPhoneController.text.trim().isNotEmpty) filled++;
-    if (gender.isNotEmpty) filled++;
+    final color = isVerified
+        ? Colors.green
+        : isPending
+        ? Colors.orange
+        : Colors.grey;
+    final bg = isVerified
+        ? Colors.green[50]
+        : isPending
+        ? Colors.yellow[50]
+        : Colors.grey[100];
+    final border = isVerified
+        ? Colors.green.shade200
+        : isPending
+        ? Colors.yellow.shade200
+        : Colors.grey.shade300;
+    final icon = isVerified
+        ? Icons.verified_user
+        : isPending
+        ? Icons.warning_amber_rounded
+        : Icons.upload_file_outlined;
+    final statusText = isVerified
+        ? 'Verified'
+        : isPending
+        ? 'Pending Verification'
+        : 'Not Uploaded';
 
-    return (filled / total) * 100;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontWeight: FontWeight.w600, color: color),
+                ),
+                const SizedBox(height: 4),
+                Text(statusText, style: TextStyle(fontSize: 12, color: color)),
+              ],
+            ),
+          ),
+          if (isVerified)
+            Icon(Icons.check_circle, color: color, size: 20)
+          else
+            TextButton(
+              onPressed: () => _openVerificationUpload(firestoreKey),
+              child: const Text('Upload'),
+            ),
+        ],
+      ),
+    );
   }
+
+  Future<void> _openVerificationUpload(String firestoreKey) async {
+    if (firestoreKey == 'pan') {
+      await Navigator.pushNamed(context, PANCardVerificationScreen.routeName);
+    } else if (firestoreKey == 'aadhaar') {
+      await Navigator.pushNamed(
+        context,
+        GovernmentIdVerificationScreen.routeName,
+      );
+    } else {
+      await Navigator.pushNamed(
+        context,
+        IdentityVerificationScreen.routeName,
+        arguments: {'focusKey': firestoreKey},
+      );
+    }
+
+    if (mounted) {
+      await _loadUserData();
+    }
+  }
+
+  // ─── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final profileCompletion = calculateProfileCompletion(); // ✅ Add here
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: WorkableDesign.canvas,
+        appBar: AppBar(title: const Text('Personal Information')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final profileCompletion = calculateProfileCompletion();
+
+    // BUG FIX 3: Relationship dropdown disabled until name + 10-digit phone filled
+    final relationDisabled =
+        emergencyNameController.text.trim().isEmpty ||
+        emergencyPhoneController.text.trim().length != 10;
+
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text('Personal Information'),
         leading: const BackButton(),
-
-        // actions: [
-        //   TextButton.icon(
-        //     icon: Icon(isEditing ? LucideIcons.save : LucideIcons.edit3),
-        //     label: Text(isEditing ? 'Save' : 'Edit'),
-        //     onPressed: () {
-        //       if (isEditing) {
-        //         // 👉 TODO: Save logic — Firestore or Local Storage here
-        //         ScaffoldMessenger.of(context).showSnackBar(
-        //           const SnackBar(content: Text('Profile changes saved.')),
-        //         );
-        //       }
-        //       setState(() {
-        //         isEditing = !isEditing;
-        //       });
-        //     },
-        //   ),
-        // ],
-        actions: [
-          IconButton(
-            tooltip: isEditing ? 'Save' : 'Edit',
-            icon: Icon(
-              isEditing ? Icons.save_outlined : Icons.edit_outlined,
-              color: Colors.white, // or Theme.of(context).iconTheme.color
-            ),
-            onPressed: () {
-              if (isEditing) {
-                _showSaveDialog(); // Or inline save
-              } else {
-                setState(() => isEditing = true);
-              }
-            },
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(
           children: [
-            // Profile Completion
+            const WorkablePageHeader(
+              title: 'Personal profile',
+              subtitle:
+                  'Keep contact, safety, and identity details accurate for faster bookings and trusted support.',
+              icon: Icons.person_outline,
+            ),
+            const SizedBox(height: 16),
+            // ── Profile Completion ──────────────────────────────────────
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -336,8 +617,11 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                           style: TextStyle(fontWeight: FontWeight.w500),
                         ),
                         Text(
-                          '$profileCompletion%',
-                          style: const TextStyle(color: Colors.blue),
+                          '${profileCompletion.toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            color: WorkableDesign.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
@@ -346,8 +630,8 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                       borderRadius: BorderRadius.circular(8),
                       child: LinearProgressIndicator(
                         value: profileCompletion / 100,
-                        color: Colors.blue,
-                        backgroundColor: Colors.grey[300],
+                        color: WorkableDesign.primary,
+                        backgroundColor: WorkableDesign.border,
                         minHeight: 8,
                       ),
                     ),
@@ -356,40 +640,30 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               ),
             ),
 
-            // Profile Photo
+            // ── Profile Photo ───────────────────────────────────────────
             sectionCard(
               title: 'Profile Photo',
               children: [
                 Row(
                   children: [
-                    Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 40,
-                          backgroundColor: Colors.blue,
-                          child: Text(
-                            getInitials(),
-                            style: const TextStyle(
-                              fontSize: 24,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        if (isEditing)
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: CircleAvatar(
-                              radius: 14,
-                              backgroundColor: Colors.blueAccent,
-                              child: const Icon(
-                                Icons.camera_alt,
-                                size: 16,
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: WorkableDesign.primary,
+                      backgroundImage:
+                          (profileImageUrl != null &&
+                              profileImageUrl!.isNotEmpty)
+                          ? NetworkImage(profileImageUrl!)
+                          : null,
+                      child:
+                          (profileImageUrl == null || profileImageUrl!.isEmpty)
+                          ? Text(
+                              getInitials(),
+                              style: const TextStyle(
+                                fontSize: 24,
                                 color: Colors.white,
                               ),
-                            ),
-                          ),
-                      ],
+                            )
+                          : null,
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -413,7 +687,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               ],
             ),
 
-            // Basic Info
+            // ── Basic Info ──────────────────────────────────────────────
             sectionCard(
               title: 'Basic Information',
               children: [
@@ -421,7 +695,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                   children: [
                     Expanded(
                       child: textInput(
-                        "First Name",
+                        'First Name',
                         firstNameController,
                         required: true,
                       ),
@@ -429,7 +703,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: textInput(
-                        "Last Name",
+                        'Last Name',
                         lastNameController,
                         required: true,
                       ),
@@ -437,45 +711,56 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                   ],
                 ),
                 textInput(
-                  "Email Address",
+                  'Email Address',
                   emailController,
                   type: TextInputType.emailAddress,
                   required: true,
                   verified: true,
+                  alwaysReadOnly: true,
                 ),
                 textInput(
-                  "Phone Number",
+                  'Phone Number',
                   phoneController,
                   type: TextInputType.phone,
                   required: true,
                   verified: true,
+                  alwaysReadOnly: true,
                 ),
+                // BUG FIX 2: digits only, max 10, live error
                 textInput(
-                  "Alternate Phone",
+                  'Alternate Phone',
                   altPhoneController,
                   type: TextInputType.phone,
+                  digitsOnly: true,
+                  maxLength: 10,
+                  errorText: _altPhoneError,
                 ),
-                textInput("Date of Birth", dobController, required: true),
+                textInput(
+                  'Date of Birth',
+                  dobController,
+                  required: true,
+                  onTap: _pickDateOfBirth,
+                ),
                 dropdownField(
-                  "Gender",
+                  'Gender',
                   gender,
-                  ["Male", "Female", "Other", "Prefer not to say"],
+                  ['Male', 'Female', 'Other', 'Prefer not to say'],
                   (val) => setState(() => gender = val ?? gender),
                   required: true,
                 ),
               ],
             ),
 
-            // Professional Info
+            // ── Professional Info ───────────────────────────────────────
             sectionCard(
               title: 'Professional Details',
               children: [
-                textInput("Occupation", occupationController),
-                textInput("Company/Organization", companyController),
+                textInput('Occupation', occupationController),
+                textInput('Company / Organization', companyController),
                 dropdownField(
-                  "Preferred Language",
+                  'Preferred Language',
                   preferredLanguage,
-                  ["English", "Hindi", "Kannada", "Tamil", "Telugu"],
+                  ['English', 'Hindi', 'Kannada', 'Tamil', 'Telugu'],
                   (val) => setState(
                     () => preferredLanguage = val ?? preferredLanguage,
                   ),
@@ -483,256 +768,190 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               ],
             ),
 
-            // Emergency Contact
+            // ── Emergency Contact ───────────────────────────────────────
             sectionCard(
               title: 'Emergency Contact',
               children: [
-                textInput("Contact Name", emergencyNameController),
+                textInput('Contact Name', emergencyNameController),
+                // BUG FIX 2: digits only, max 10
                 textInput(
-                  "Contact Phone",
+                  'Contact Phone',
                   emergencyPhoneController,
                   type: TextInputType.phone,
+                  digitsOnly: true,
+                  maxLength: 10,
                 ),
+                // BUG FIX 3: Relationship locked until name + phone complete
                 dropdownField(
-                  "Relationship",
+                  'Relationship',
                   emergencyRelation,
-                  ["Spouse", "Parent", "Sibling", "Friend", "Other"],
+                  ['Spouse', 'Parent', 'Sibling', 'Friend', 'Other'],
                   (val) => setState(
                     () => emergencyRelation = val ?? emergencyRelation,
                   ),
+                  disabled: relationDisabled,
                 ),
+                if (relationDisabled)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Enter a contact name and 10-digit phone number to select the relationship.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
               ],
             ),
-            // Addresses
+
+            // ── Saved Addresses ─────────────────────────────────────────
+            // BUG FIX 4: Always visible with empty state + Add button always shown
             sectionCard(
               title: 'Saved Addresses',
               children: [
-                ...addresses.map((address) {
-                  final isHome = address['type'] == 'Home';
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: const BorderSide(color: Colors.grey),
+                if (addresses.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: const [
+                        Icon(
+                          Icons.location_off_outlined,
+                          color: Colors.grey,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'No saved addresses yet.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ],
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: [
-                                    Chip(
-                                      label: Text(address['type']),
-                                      backgroundColor: isHome
-                                          ? Colors.green[100]
-                                          : Colors.blue[100],
-                                      labelStyle: TextStyle(
-                                        color: isHome
-                                            ? Colors.green[700]
-                                            : Colors.blue[700],
+                  )
+                else
+                  ...addresses.map((address) {
+                    final isHome = address['type'] == 'Home';
+                    final isDefault = address['isDefault'] == true;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: Colors.grey),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      Chip(
+                                        label: Text(address['type']),
+                                        backgroundColor: isHome
+                                            ? Colors.green[100]
+                                            : Colors.blue[100],
+                                        labelStyle: TextStyle(
+                                          color: isHome
+                                              ? Colors.green[700]
+                                              : Colors.blue[700],
+                                        ),
                                       ),
-                                    ),
-                                    if (address['isDefault'])
-                                      const Chip(
-                                        label: Text("Default"),
-                                        backgroundColor: Color(0xFFEDEDED),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  address['address'],
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              ],
+                                      if (isDefault)
+                                        const Chip(
+                                          label: Text('Default'),
+                                          backgroundColor: Color(0xFFEDEDED),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    address['address'] ?? '',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          if (isEditing)
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () {
-                                setState(() {
-                                  addresses.removeWhere(
-                                    (a) => a['id'] == address['id'],
-                                  );
-                                });
-                              },
+                              onPressed: () => setState(() {
+                                addresses.removeWhere(
+                                  (a) => a['id'] == address['id'],
+                                );
+                              }),
                             ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }).toList(),
-                if (isEditing)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () {
-                        // Add address logic
-                      },
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text("Add Address"),
-                    ),
+                    );
+                  }),
+                // BUG FIX 4: Always visible
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      await Navigator.pushNamed(
+                        context,
+                        AddNewAddressScreen.routeName,
+                      );
+                      if (mounted) {
+                        await _loadUserData();
+                      }
+                    },
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Address'),
                   ),
+                ),
               ],
             ),
 
-            // Identity Verification
+            // ── Identity Verification ───────────────────────────────────
             sectionCard(
               title: 'Identity Verification',
               children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.green[50],
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.green.shade200),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.verified_user, color: Colors.green),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              "Aadhaar Card",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.green,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "Verified",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.yellow[50],
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.yellow.shade200),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.warning_amber_rounded,
-                        color: Colors.orange,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              "PAN Card",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "Pending Verification",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (isEditing)
-                        TextButton(
-                          onPressed: () {
-                            // upload PAN logic
-                          },
-                          child: const Text("Upload"),
-                        ),
-                    ],
-                  ),
-                ),
+                _verificationTile('Aadhaar Card', 'aadhaar'),
+                _verificationTile('PAN Card', 'pan'),
               ],
             ),
 
-            // Account Security
+            // ── Account Security ────────────────────────────────────────
             sectionCard(
               title: 'Account Security',
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Password",
+                        const Text(
+                          'Password',
                           style: TextStyle(fontWeight: FontWeight.w500),
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Text(
-                          "Last updated 2 months ago",
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                          'Last updated $passwordLastUpdated',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                       ],
                     ),
-                    if (isEditing)
-                      TextButton(
-                        onPressed: () {
-                          // open change password dialog
-                        },
-                        child: const Text("Change"),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Two-Factor Authentication",
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "Add extra security to your account",
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        const Text("Off", style: TextStyle(color: Colors.grey)),
-                        if (isEditing) Switch(value: false, onChanged: (_) {}),
-                      ],
+                    TextButton(
+                      onPressed: () async {
+                        final changed = await Navigator.pushNamed(
+                          context,
+                          ChangePasswordScreen.routeName,
+                        );
+                        if (changed == true && mounted) {
+                          await _loadUserData();
+                        }
+                      },
+                      child: const Text('Change'),
                     ),
                   ],
                 ),
@@ -740,28 +959,28 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
             ),
 
             const SizedBox(height: 16),
-            if (isEditing)
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => setState(() => isEditing = false),
-                      child: const Text('Cancel'),
+
+            // ── Save Button ─────────────────────────────────────────────
+            // BUG FIX 1: Always visible. Fades in when user makes a change.
+            // Stays disabled (faded) if nothing changed or validation fails.
+            SizedBox(
+              width: double.infinity,
+              child: AnimatedOpacity(
+                opacity: _canSave ? 1.0 : 0.4,
+                duration: const Duration(milliseconds: 200),
+                child: ElevatedButton(
+                  onPressed: _canSave ? _saveChanges : null,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        // Save logic here
-                        _showSaveDialog();
-                        setState(() => isEditing = false);
-                      },
-                      child: const Text('Save Changes'),
-                    ),
-                  ),
-                ],
+                  child: const Text('Save Changes'),
+                ),
               ),
+            ),
+
             const SizedBox(height: 24),
           ],
         ),

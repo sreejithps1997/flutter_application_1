@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+import '../core/theme/workable_design.dart';
 
 class UserTypeSelectionScreen extends StatefulWidget {
   static const routeName = '/user-type-selection';
@@ -16,32 +18,32 @@ class _UserTypeSelectionScreenState extends State<UserTypeSelectionScreen>
     with TickerProviderStateMixin {
   bool _isLoading = false;
   String _selectedRole = '';
-  late AnimationController _fadeController;
-  late AnimationController _slideController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
+  late final AnimationController _fadeController;
+  late final AnimationController _slideController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
     _fadeController = AnimationController(
-      duration: Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
       vsync: this,
     );
     _slideController = AnimationController(
-      duration: Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 650),
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
     );
-    _slideAnimation = Tween<Offset>(begin: Offset(0, 0.3), end: Offset.zero)
-        .animate(
-          CurvedAnimation(parent: _slideController, curve: Curves.easeOutBack),
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
+          CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
         );
 
-    // Start animations
     _fadeController.forward();
     _slideController.forward();
   }
@@ -53,7 +55,7 @@ class _UserTypeSelectionScreenState extends State<UserTypeSelectionScreen>
     super.dispose();
   }
 
-  void _navigateToRole(BuildContext context, String role) async {
+  Future<void> _navigateToRole(String role) async {
     setState(() {
       _isLoading = true;
       _selectedRole = role;
@@ -67,35 +69,34 @@ class _UserTypeSelectionScreenState extends State<UserTypeSelectionScreen>
             .collection('users')
             .doc(user.uid)
             .get();
+        if (!mounted) return;
+
         final userType = doc.data()?['userType'];
 
         if (userType == role) {
-          // Navigate directly to dashboard
           if (role == 'customer') {
             Navigator.pushReplacementNamed(context, '/customer-dashboard');
           } else if (role == 'worker') {
             Navigator.pushReplacementNamed(context, '/worker-dashboard');
           }
           return;
-        } else {
-          // Signed in user but different role
-          await FirebaseAuth.instance.signOut();
         }
+
+        await FirebaseAuth.instance.signOut();
+        if (!mounted) return;
       }
 
-      // Not logged in or role mismatch, go to auth
       if (role == 'customer') {
         Navigator.pushNamed(context, '/customer-auth');
       } else if (role == 'worker') {
         Navigator.pushNamed(context, '/worker-auth');
       }
-    } catch (e) {
-      // Show error message
+    } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Something went wrong. Please try again.'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: WorkableDesign.danger,
         ),
       );
     } finally {
@@ -111,159 +112,59 @@ class _UserTypeSelectionScreenState extends State<UserTypeSelectionScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.deepPurple.shade50,
-              Colors.white,
-              Colors.blue.shade50,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24.0,
-              vertical: 20.0,
-            ),
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // App Logo/Branding
-                          Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple,
-                              borderRadius: BorderRadius.circular(25),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.deepPurple.withOpacity(0.3),
-                                  blurRadius: 20,
-                                  offset: Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.work_outline,
-                              size: 50,
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(height: 30),
-
-                          // Title
-                          Text(
-                            "Welcome to Workable",
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          SizedBox(height: 8),
-
-                          // Subtitle
-                          Text(
-                            "Connect with skilled workers or offer your services",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 16,
-                              height: 1.4,
-                            ),
-                          ),
-                          SizedBox(height: 50),
-
-                          // Role Selection Cards
-                          _buildRoleCard(
-                            context,
-                            role: 'customer',
-                            icon: Icons.person_outline,
-                            title: "I'm a Customer",
-                            description:
-                                "Book skilled workers for home services",
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.blue.shade400,
-                                Colors.blue.shade600,
-                              ],
-                            ),
-                            stats: "Join 5,000+ happy customers",
-                          ),
-                          SizedBox(height: 20),
-
-                          _buildRoleCard(
-                            context,
-                            role: 'worker',
-                            icon: Icons.handyman_outlined,
-                            title: "I'm a Worker",
-                            description: "Offer your skills and earn money",
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.orange.shade400,
-                                Colors.orange.shade600,
-                              ],
-                            ),
-                            stats: "Join 10,000+ skilled workers",
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Bottom Options
-                    Column(
-                      children: [
-                        TextButton(
-                          onPressed: () {
-                            // Navigate to browse/guest mode
-                            Navigator.pushNamed(context, '/browse-services');
-                          },
-                          child: Text(
-                            "Browse services without signing up",
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 14,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: 10),
-
-                        // Trust indicators
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.security,
-                              size: 16,
-                              color: Colors.grey[500],
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              "Secure • Verified • Trusted",
-                              style: TextStyle(
-                                color: Colors.grey[500],
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
+      backgroundColor: WorkableDesign.canvas,
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+              children: [
+                _buildBrandHeader(),
+                const SizedBox(height: 34),
+                const Text(
+                  'What do you need today?',
+                  style: TextStyle(
+                    color: WorkableDesign.ink,
+                    fontSize: 30,
+                    height: 1.08,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Book trusted help nearby or grow your service business from one simple app.',
+                  style: TextStyle(
+                    color: WorkableDesign.muted,
+                    fontSize: 15,
+                    height: 1.45,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                _buildRoleCard(
+                  role: 'customer',
+                  icon: Icons.person_search_outlined,
+                  title: 'I need help',
+                  description:
+                      'Find verified workers for home service, repairs, delivery, pickup, and daily support.',
+                  accentColor: WorkableDesign.primary,
+                  badges: const ['Verified workers', 'Live booking flow'],
+                ),
+                const SizedBox(height: 14),
+                _buildRoleCard(
+                  role: 'worker',
+                  icon: Icons.engineering_outlined,
+                  title: 'I offer services',
+                  description:
+                      'Receive nearby jobs, manage bookings, build trust, and track earnings.',
+                  accentColor: WorkableDesign.accent,
+                  badges: const ['Business profile', 'Payout ready'],
+                ),
+                const SizedBox(height: 28),
+                _buildTrustStrip(),
+              ],
             ),
           ),
         ),
@@ -271,105 +172,195 @@ class _UserTypeSelectionScreenState extends State<UserTypeSelectionScreen>
     );
   }
 
-  Widget _buildRoleCard(
-    BuildContext context, {
+  Widget _buildBrandHeader() {
+    return Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: WorkableDesign.ink,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: WorkableDesign.primary.withValues(alpha: 0.16),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.handshake_outlined,
+            color: Colors.white,
+            size: 26,
+          ),
+        ),
+        const SizedBox(width: 12),
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Workable',
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Your local helping hand',
+              style: TextStyle(
+                color: WorkableDesign.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoleCard({
     required String role,
     required IconData icon,
     required String title,
     required String description,
-    required LinearGradient gradient,
-    required String stats,
+    required Color accentColor,
+    required List<String> badges,
   }) {
-    bool isSelected = _selectedRole == role;
-    bool isLoading = _isLoading && isSelected;
+    final isSelected = _selectedRole == role;
+    final isLoading = _isLoading && isSelected;
 
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 200),
-      transform: Matrix4.identity()..scale(isSelected ? 0.98 : 1.0),
-      child: GestureDetector(
-        onTap: isLoading ? null : () => _navigateToRole(context, role),
-        child: Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: gradient,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: gradient.colors.first.withOpacity(0.3),
-                blurRadius: 15,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              // Icon container
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 30, color: Colors.white),
-              ),
-              SizedBox(width: 16),
-
-              // Content
-              Expanded(
-                child: Column(
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 180),
+      scale: isSelected ? 0.985 : 1,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isLoading ? null : () => _navigateToRole(role),
+          borderRadius: BorderRadius.circular(WorkableDesign.radius),
+          child: Ink(
+            padding: const EdgeInsets.all(18),
+            decoration: WorkableDesign.cardDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(icon, color: accentColor, size: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              color: WorkableDesign.ink,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            description,
+                            style: const TextStyle(
+                              color: WorkableDesign.muted,
+                              fontSize: 13.5,
+                              height: 1.4,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      description,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                        height: 1.3,
+                    const SizedBox(width: 12),
+                    if (isLoading)
+                      SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: accentColor,
+                        ),
+                      )
+                    else
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        color: accentColor,
+                        size: 24,
                       ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      stats,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
                   ],
                 ),
-              ),
-
-              // Loading or Arrow
-              if (isLoading)
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 2,
-                  ),
-                )
-              else
-                Icon(
-                  Icons.arrow_forward_ios,
-                  size: 18,
-                  color: Colors.white.withOpacity(0.8),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: badges
+                      .map((badge) => _buildBadge(badge, accentColor))
+                      .toList(),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBadge(String label, Color accentColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accentColor.withValues(alpha: 0.14)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accentColor,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrustStrip() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: WorkableDesign.cardDecoration(
+        color: WorkableDesign.ink,
+        borderColor: WorkableDesign.ink,
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.verified_user_outlined, color: Colors.white, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Built for verified profiles, protected bookings, and transparent payments.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

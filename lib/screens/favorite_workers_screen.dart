@@ -1,8 +1,15 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
+import 'worker_profile_screen.dart';
+
 class FavoriteWorkersScreen extends StatefulWidget {
-  static const routeName = '/favorite-workers';
+  static const routeName = '/customer/favorite-workers';
 
   const FavoriteWorkersScreen({super.key});
 
@@ -11,501 +18,369 @@ class FavoriteWorkersScreen extends StatefulWidget {
 }
 
 class _FavoriteWorkersScreenState extends State<FavoriteWorkersScreen> {
-  String viewMode = 'grid';
-  String searchQuery = '';
-  String selectedCategory = 'all';
-  String sortBy = 'rating';
-  bool showFilters = false;
+  String _searchQuery = '';
+  String _selectedSkill = 'All';
 
-  final List<Map<String, dynamic>> categories = [
-    {'id': 'all', 'name': 'All Services', 'icon': LucideIcons.user},
-    {'id': 'plumber', 'name': 'Plumber', 'icon': LucideIcons.droplets},
-    {'id': 'electrician', 'name': 'Electrician', 'icon': LucideIcons.zap},
-    {'id': 'carpenter', 'name': 'Carpenter', 'icon': LucideIcons.hammer},
-    {'id': 'painter', 'name': 'Painter', 'icon': LucideIcons.paintbrush},
-    {'id': 'mechanic', 'name': 'Mechanic', 'icon': LucideIcons.wrench},
-  ];
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  final List<Map<String, dynamic>> workers = [
-    {
-      'id': 1,
-      'name': 'Rajesh Kumar',
-      'service': 'Plumber',
-      'rating': 4.8,
-      'reviews': 156,
-      'price': 300,
-      'distance': 2.3,
-      'avatar': 'RK',
-      'isOnline': true,
-      'lastBooked': '2 days ago',
-      'completedJobs': 89,
-      'skills': ['Pipe Repair', 'Installation', 'Maintenance'],
-      'joinedDate': 'Jan 2023',
-    },
-    {
-      'id': 2,
-      'name': 'Amit Singh',
-      'service': 'Electrician',
-      'rating': 4.9,
-      'reviews': 203,
-      'price': 350,
-      'distance': 1.8,
-      'avatar': 'AS',
-      'isOnline': false,
-      'lastBooked': '1 week ago',
-      'completedJobs': 127,
-      'skills': ['Wiring', 'Appliance Repair', 'Installation'],
-      'joinedDate': 'Mar 2022',
-    },
-    {
-      'id': 3,
-      'name': 'Priya Sharma',
-      'service': 'Painter',
-      'rating': 4.7,
-      'reviews': 98,
-      'price': 250,
-      'distance': 3.1,
-      'avatar': 'PS',
-      'isOnline': true,
-      'lastBooked': '3 days ago',
-      'completedJobs': 67,
-      'skills': ['Interior Painting', 'Wall Design', 'Texture'],
-      'joinedDate': 'Aug 2023',
-    },
-    {
-      'id': 4,
-      'name': 'Mohammed Ali',
-      'service': 'Carpenter',
-      'rating': 4.6,
-      'reviews': 134,
-      'price': 280,
-      'distance': 4.2,
-      'avatar': 'MA',
-      'isOnline': true,
-      'lastBooked': '5 days ago',
-      'completedJobs': 95,
-      'skills': ['Furniture Repair', 'Installation', 'Custom Work'],
-      'joinedDate': 'Dec 2022',
-    },
-    {
-      'id': 5,
-      'name': 'Suresh Gupta',
-      'service': 'Mechanic',
-      'rating': 4.5,
-      'reviews': 87,
-      'price': 400,
-      'distance': 2.7,
-      'avatar': 'SG',
-      'isOnline': false,
-      'lastBooked': '1 month ago',
-      'completedJobs': 73,
-      'skills': ['AC Repair', 'Appliance Service', 'Motor Repair'],
-      'joinedDate': 'May 2023',
-    },
-  ];
+  CollectionReference<Map<String, dynamic>> get _favoritesRef =>
+      FirebaseFirestore.instance
+          .collection('customers')
+          .doc(_uid)
+          .collection('favoriteWorkers');
 
-  List<Map<String, dynamic>> get filteredWorkers {
-    return workers.where((worker) {
-      final matchesSearch =
-          worker['name'].toLowerCase().contains(searchQuery.toLowerCase()) ||
-          worker['service'].toLowerCase().contains(searchQuery.toLowerCase());
-      final matchesCategory =
-          selectedCategory == 'all' ||
-          worker['service'].toLowerCase() == selectedCategory;
-      return matchesSearch && matchesCategory;
-    }).toList();
+  Future<void> _removeFavorite(String workerId, String workerName) async {
+    HapticFeedback.mediumImpact();
+    await _favoritesRef.doc(workerId).delete();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$workerName removed from favorites'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await _favoritesRef.doc(workerId).set({
+              'workerId': workerId,
+              'addedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          },
+        ),
+      ),
+    );
   }
 
-  List<Map<String, dynamic>> get sortedWorkers {
-    List<Map<String, dynamic>> list = [...filteredWorkers];
-    list.sort((a, b) {
-      switch (sortBy) {
-        case 'rating':
-          return (b['rating'] as double).compareTo(a['rating'] as double);
-        case 'price':
-          return (a['price'] as int).compareTo(b['price'] as int);
-        case 'distance':
-          return (a['distance'] as double).compareTo(b['distance'] as double);
-        default:
-          return 0;
-      }
-    });
-    return list;
+  Future<List<Map<String, dynamic>>> _fetchWorkers(List<String> ids) async {
+    if (ids.isEmpty) return [];
+
+    final docs = await Future.wait(
+      ids.map(
+        (id) => FirebaseFirestore.instance.collection('workers').doc(id).get(),
+      ),
+    );
+
+    return docs
+        .where((doc) => doc.exists)
+        .map((doc) => {'id': doc.id, ...doc.data()!})
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        centerTitle: false,
-        leading: BackButton(color: Colors.black),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Favorite Workers",
-              style: TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              "${filteredWorkers.length} saved workers",
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-            ),
-          ],
+        title: const Text('Favorite Workers'),
+        leading: IconButton(
+          icon: const Icon(LucideIcons.arrowLeft),
+          onPressed: () => Navigator.pop(context),
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              viewMode == 'grid' ? LucideIcons.list : LucideIcons.grid,
-            ),
-            onPressed: () {
-              setState(() {
-                viewMode = viewMode == 'grid' ? 'list' : 'grid';
-              });
-            },
-          ),
-        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Search Bar
-            TextField(
-              onChanged: (val) => setState(() => searchQuery = val),
-              decoration: InputDecoration(
-                prefixIcon: const Icon(LucideIcons.search, size: 20),
-                hintText: 'Search workers...',
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+      body: SafeArea(
+        child: _uid.isEmpty
+            ? const WorkableEmptyState(
+                icon: LucideIcons.heart,
+                title: 'Sign in required',
+                message: 'Please log in to view and manage favorite workers.',
+              )
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                    child: _buildHeader(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _buildSearchField(),
+                  ),
+                  Expanded(child: _buildFavoritesList()),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
+      ),
+    );
+  }
 
-            // Category Chips
-            SizedBox(
-              height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: categories.map((category) {
-                  final isActive = selectedCategory == category['id'];
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      selected: isActive,
-                      label: Row(
-                        children: [
-                          Icon(category['icon'], size: 16),
-                          const SizedBox(width: 4),
-                          Text(category['name']),
-                        ],
-                      ),
-                      selectedColor: Colors.blue,
-                      labelStyle: TextStyle(
-                        color: isActive ? Colors.white : Colors.black,
-                      ),
-                      onSelected: (_) {
-                        setState(() {
-                          selectedCategory = category['id'];
-                        });
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
+  Widget _buildHeader() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _favoritesRef.snapshots(),
+      builder: (context, snapshot) {
+        final count = snapshot.data?.docs.length ?? 0;
+        return WorkablePageHeader(
+          title: 'Trusted workers',
+          subtitle:
+              'Save the people you trust most and book them again without searching from scratch.',
+          icon: LucideIcons.heartHandshake,
+          trailing: WorkableStatusPill(
+            label: '$count saved',
+            color: WorkableDesign.accent,
+            icon: LucideIcons.heart,
+          ),
+        );
+      },
+    );
+  }
 
-            const SizedBox(height: 12),
+  Widget _buildSearchField() {
+    return TextField(
+      onChanged: (value) => setState(() => _searchQuery = value.trim()),
+      decoration: const InputDecoration(
+        hintText: 'Search by name, skill, or city',
+        prefixIcon: Icon(LucideIcons.search),
+      ),
+    );
+  }
 
-            // Sort Dropdown
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildFavoritesList() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _favoritesRef.orderBy('addedAt', descending: true).snapshots(),
+      builder: (context, favoriteSnapshot) {
+        if (favoriteSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (favoriteSnapshot.hasError) {
+          return const WorkableEmptyState(
+            icon: LucideIcons.alertTriangle,
+            title: 'Could not load favorites',
+            message: 'Please check your connection and try again.',
+          );
+        }
+
+        final favoriteDocs = favoriteSnapshot.data?.docs ?? [];
+        if (favoriteDocs.isEmpty) {
+          return WorkableEmptyState(
+            icon: LucideIcons.heart,
+            title: 'No favorite workers yet',
+            message:
+                'Open a worker profile and tap the favorite action to keep trusted workers here.',
+            actionLabel: 'Explore Workers',
+            onAction: () => Navigator.pop(context),
+          );
+        }
+
+        final workerIds = favoriteDocs.map((doc) => doc.id).toList();
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: _fetchWorkers(workerIds),
+          builder: (context, workersSnapshot) {
+            if (workersSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (workersSnapshot.hasError) {
+              return const WorkableEmptyState(
+                icon: LucideIcons.alertTriangle,
+                title: 'Worker details unavailable',
+                message: 'Some saved workers could not be loaded right now.',
+              );
+            }
+
+            final workers = _filteredWorkers(workersSnapshot.data ?? []);
+            final skills = _availableSkills(workersSnapshot.data ?? []);
+
+            if (workers.isEmpty) {
+              return _buildNoResults();
+            }
+
+            return Column(
               children: [
-                DropdownButton<String>(
-                  value: sortBy,
-                  underline: Container(),
-                  borderRadius: BorderRadius.circular(10),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'rating',
-                      child: Text("Sort by Rating"),
-                    ),
-                    DropdownMenuItem(
-                      value: 'price',
-                      child: Text("Sort by Price"),
-                    ),
-                    DropdownMenuItem(
-                      value: 'distance',
-                      child: Text("Sort by Distance"),
-                    ),
-                  ],
-                  onChanged: (val) => setState(() => sortBy = val!),
-                ),
-                TextButton.icon(
-                  icon: const Icon(LucideIcons.filter, size: 16),
-                  label: const Text("Filters"),
-                  onPressed: () => setState(() => showFilters = !showFilters),
+                if (skills.length > 1) _buildSkillFilters(skills),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    itemCount: workers.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      return _buildWorkerCard(workers[index]);
+                    },
+                  ),
                 ),
               ],
-            ),
+            );
+          },
+        );
+      },
+    );
+  }
 
-            if (showFilters)
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: Colors.grey.shade200),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [Text("Advanced Filters Coming Soon")],
-                ),
-              ),
+  List<Map<String, dynamic>> _filteredWorkers(
+    List<Map<String, dynamic>> workers,
+  ) {
+    final query = _searchQuery.toLowerCase();
 
-            const SizedBox(height: 12),
+    return workers.where((worker) {
+      final skills = _workerSkills(worker);
+      final searchable = [
+        worker['fullName'],
+        worker['name'],
+        worker['city'],
+        ...skills,
+      ].whereType<Object>().join(' ').toLowerCase();
 
-            // Worker Cards
-            if (filteredWorkers.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  children: const [
-                    Icon(LucideIcons.heart, size: 48, color: Colors.grey),
-                    SizedBox(height: 8),
-                    Text(
-                      "No favorite workers found",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      "Try adjusting your search or filters",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
-              )
-            else
-              viewMode == 'grid'
-                  ? Column(
-                      children: sortedWorkers
-                          .map((w) => _buildWorkerCard(w))
-                          .toList(),
-                    )
-                  : Column(
-                      children: sortedWorkers
-                          // .map((w) => _buildWorkerCard(w, isListView: true))
-                          .map((w) => _buildWorkerCard(w))
-                          .toList(),
-                    ),
-          ],
-        ),
+      final matchesQuery = query.isEmpty || searchable.contains(query);
+      final matchesSkill =
+          _selectedSkill == 'All' || skills.contains(_selectedSkill);
+      return matchesQuery && matchesSkill;
+    }).toList();
+  }
+
+  List<String> _availableSkills(List<Map<String, dynamic>> workers) {
+    final skills = <String>{'All'};
+    for (final worker in workers) {
+      skills.addAll(_workerSkills(worker));
+    }
+    return skills.toList();
+  }
+
+  List<String> _workerSkills(Map<String, dynamic> worker) {
+    final rawSkills = worker['skills'] ?? worker['services'];
+    if (rawSkills is List) {
+      return rawSkills.map((skill) => skill.toString()).toList();
+    }
+    return const [];
+  }
+
+  Widget _buildSkillFilters(List<String> skills) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        itemCount: skills.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final skill = skills[index];
+          final selected = _selectedSkill == skill;
+          return ChoiceChip(
+            label: Text(skill),
+            selected: selected,
+            onSelected: (_) => setState(() => _selectedSkill = skill),
+          );
+        },
       ),
     );
   }
 
   Widget _buildWorkerCard(Map<String, dynamic> worker) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    final workerId = worker['id']?.toString() ?? '';
+    final name = (worker['fullName'] ?? worker['name'] ?? 'Worker').toString();
+    final city = (worker['city'] ?? '').toString();
+    final skills = _workerSkills(worker);
+    final rating = _asDouble(worker['averageRating'] ?? worker['rating']);
+    final jobs = worker['completedJobsCount'] ?? worker['completedJobs'] ?? 0;
+    final isAvailable = worker['isAvailable'] == true;
+    final profileImageUrl =
+        (worker['profileImageUrl'] ?? worker['profilePhotoUrl']) as String?;
+    final wageMap = worker['wageMap'] is Map
+        ? Map<String, dynamic>.from(worker['wageMap'] as Map)
+        : <String, dynamic>{};
+    final primarySkill = skills.isNotEmpty ? skills.first : 'Service provider';
+    final primaryPrice = _displayPrice(worker, wageMap, primarySkill);
+
+    return WorkableSectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Avatar + Heart
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: Colors.blue,
-                    child: Text(
-                      worker['avatar'],
+              _buildAvatar(name, profileImageUrl, isAvailable),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                        color: WorkableDesign.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ),
-                  if (worker['isOnline'] == true)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: CircleAvatar(
-                        radius: 5,
-                        backgroundColor: Colors.green,
-                      ),
+                    const SizedBox(height: 4),
+                    WorkableInfoRow(
+                      icon: LucideIcons.mapPin,
+                      text: city.isEmpty
+                          ? primarySkill
+                          : '$primarySkill in $city',
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        WorkableStatusPill(
+                          label: isAvailable ? 'Available' : 'Unavailable',
+                          color: isAvailable
+                              ? WorkableDesign.success
+                              : WorkableDesign.muted,
+                          icon: isAvailable
+                              ? LucideIcons.zap
+                              : LucideIcons.clock,
+                        ),
+                        WorkableStatusPill(
+                          label: primaryPrice,
+                          color: WorkableDesign.primary,
+                          icon: LucideIcons.wallet,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              const Spacer(),
-              const Icon(Icons.favorite, color: Colors.red, size: 20),
+              IconButton(
+                tooltip: 'Remove favorite',
+                onPressed: () => _confirmRemove(workerId, name),
+                icon: const Icon(LucideIcons.heartOff),
+                color: WorkableDesign.danger,
+              ),
             ],
           ),
-
-          const SizedBox(height: 8),
-
-          // Name
-          Text(
-            worker['name'],
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _metric(
+                LucideIcons.star,
+                rating > 0 ? rating.toStringAsFixed(1) : 'New',
+              ),
+              const SizedBox(width: 8),
+              _metric(LucideIcons.checkCircle, '$jobs jobs'),
+            ],
           ),
-
-          const SizedBox(height: 2),
-
-          // Profession
-          Text(
-            worker['service'],
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.blue,
-              fontWeight: FontWeight.w500,
+          if (skills.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: skills.take(4).map((skill) {
+                final wage = wageMap[skill];
+                final label = wage == null ? skill : '$skill - Rs $wage';
+                return WorkableStatusPill(
+                  label: label,
+                  color: WorkableDesign.accent,
+                );
+              }).toList(),
             ),
-          ),
-
-          const SizedBox(height: 6),
-
-          // Rating Row
-          Row(
-            children: [
-              const Icon(Icons.star, color: Colors.amber, size: 14),
-              const SizedBox(width: 3),
-              Text(
-                "${worker['rating']}",
-                style: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 12,
-                ),
-              ),
-              Text(
-                " (${worker['reviews']} reviews)",
-                style: const TextStyle(color: Colors.grey, fontSize: 11),
-              ),
-              const SizedBox(width: 6),
-              const Text("•", style: TextStyle(color: Colors.grey)),
-              const SizedBox(width: 6),
-              Text(
-                "${worker['completedJobs']} jobs",
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Skills
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              ...worker['skills']
-                  .take(2)
-                  .map<Widget>(
-                    (skill) => Chip(
-                      label: Text(skill, style: const TextStyle(fontSize: 10)),
-                      backgroundColor: Colors.grey.shade100,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                    ),
-                  )
-                  .toList(),
-              if (worker['skills'].length > 2)
-                Chip(
-                  label: Text(
-                    "+${worker['skills'].length - 2}",
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                  backgroundColor: Colors.grey.shade200,
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Price, Distance, Last Booked
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "₹${worker['price']}/hr",
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-              Row(
-                children: [
-                  const Icon(Icons.location_on_outlined, size: 13),
-                  const SizedBox(width: 2),
-                  Text(
-                    "${worker['distance']} km",
-                    style: const TextStyle(fontSize: 11, color: Colors.black87),
-                  ),
-                  const SizedBox(width: 10),
-                  const Icon(Icons.access_time, size: 13),
-                  const SizedBox(width: 2),
-                  Text(
-                    "Last: ${worker['lastBooked']}",
-                    style: const TextStyle(fontSize: 11, color: Colors.black87),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // Buttons
+          ],
+          const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.calendar_today, size: 14),
-                  label: const Text("Book Now", style: TextStyle(fontSize: 13)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    minimumSize: const Size.fromHeight(36),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
+                child: FilledButton.icon(
+                  onPressed: () => _openWorkerProfile(worker),
+                  icon: const Icon(LucideIcons.calendarCheck),
+                  label: const Text('Book / View Profile'),
                 ),
               ),
-              const SizedBox(width: 6),
-              _circleIconButton(Icons.phone, onPressed: () {}),
-              const SizedBox(width: 6),
-              _circleIconButton(Icons.chat_bubble_outline, onPressed: () {}),
+              const SizedBox(width: 10),
+              IconButton.outlined(
+                tooltip: 'Call worker',
+                onPressed: () => _callWorker(
+                  worker['phone']?.toString() ??
+                      worker['phoneNumber']?.toString(),
+                ),
+                icon: const Icon(LucideIcons.phone),
+              ),
             ],
           ),
         ],
@@ -513,20 +388,176 @@ class _FavoriteWorkersScreenState extends State<FavoriteWorkersScreen> {
     );
   }
 
-  Widget _circleIconButton(IconData icon, {required VoidCallback onPressed}) {
-    return Container(
-      height: 36,
-      width: 36,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: IconButton(
-        icon: Icon(icon, size: 18, color: Colors.black87),
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        splashRadius: 20,
+  Widget _buildAvatar(String name, String? imageUrl, bool isAvailable) {
+    return Stack(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: WorkableDesign.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            image: imageUrl == null || imageUrl.isEmpty
+                ? null
+                : DecorationImage(
+                    image: NetworkImage(imageUrl),
+                    fit: BoxFit.cover,
+                  ),
+          ),
+          child: imageUrl == null || imageUrl.isEmpty
+              ? Center(
+                  child: Text(
+                    _initials(name),
+                    style: const TextStyle(
+                      color: WorkableDesign.primary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+        if (isAvailable)
+          Positioned(
+            right: 4,
+            bottom: 4,
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: WorkableDesign.success,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: WorkableDesign.surface, width: 2),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _metric(IconData icon, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: WorkableDesign.cardDecoration(
+          color: WorkableDesign.canvas,
+          borderColor: WorkableDesign.border,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: WorkableDesign.muted),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: WorkableDesign.ink,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildNoResults() {
+    return WorkableEmptyState(
+      icon: LucideIcons.searchX,
+      title: 'No matching workers',
+      message: 'Try a different name, city, or service skill.',
+      actionLabel: 'Clear Search',
+      onAction: () => setState(() {
+        _searchQuery = '';
+        _selectedSkill = 'All';
+      }),
+    );
+  }
+
+  String _displayPrice(
+    Map<String, dynamic> worker,
+    Map<String, dynamic> wageMap,
+    String primarySkill,
+  ) {
+    final skillPrice = wageMap[primarySkill];
+    if (skillPrice != null) return 'From Rs $skillPrice/hr';
+
+    final pricing = worker['pricing'];
+    if (pricing is num) return 'From Rs ${pricing.round()}/hr';
+    if (pricing is Map && pricing.isNotEmpty) {
+      final first = pricing.values.first;
+      return 'From Rs $first/hr';
+    }
+    final displayPricing = worker['displayPricing']?.toString();
+    if (displayPricing != null && displayPricing.isNotEmpty) {
+      return displayPricing.replaceAll('₹', 'Rs ');
+    }
+    return 'Price on booking';
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  void _openWorkerProfile(Map<String, dynamic> worker) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WorkerProfileScreen(
+          workerId: worker['id']?.toString() ?? '',
+          name: (worker['fullName'] ?? worker['name'] ?? 'Worker').toString(),
+        ),
+      ),
+    );
+  }
+
+  void _callWorker(String? phone) {
+    if (phone == null || phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Phone number not available')),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Call support/phone integration needed: $phone')),
+    );
+  }
+
+  Future<void> _confirmRemove(String workerId, String name) async {
+    if (workerId.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove favorite?'),
+        content: Text('$name will be removed from your saved workers.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _removeFavorite(workerId, name);
+    }
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return name.isNotEmpty ? name[0].toUpperCase() : 'W';
   }
 }

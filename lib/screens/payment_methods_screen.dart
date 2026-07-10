@@ -1,5 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+
+import '../core/theme/workable_design.dart';
+import '../services/app_preferences_service.dart';
+import '../widgets/workable_ui.dart';
 
 class PaymentMethodsScreen extends StatefulWidget {
   static const routeName = '/payment-methods';
@@ -11,29 +17,333 @@ class PaymentMethodsScreen extends StatefulWidget {
 }
 
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
-  String selectedMethod = 'card-1';
   bool quickPayEnabled = true;
+  bool autoPayEnabled = false;
+  bool biometricPayments = true;
 
-  Widget _buildPaymentCard({
-    required String id,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    String? balance,
-    bool isDefault = false,
-    Color bgColor = Colors.blue,
-  }) {
-    final isSelected = selectedMethod == id;
+  @override
+  void initState() {
+    super.initState();
+    quickPayEnabled = AppPreferencesService.quickPay;
+    autoPayEnabled = AppPreferencesService.autoPay;
+    biometricPayments = AppPreferencesService.biometricPayments;
+  }
+
+  CollectionReference<Map<String, dynamic>> _methodsRef(String uid) {
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('paymentMethods');
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _methodsStream(String uid) {
+    return _methodsRef(uid).orderBy('createdAt', descending: true).snapshots();
+  }
+
+  Future<void> _addUpiMethod(String uid) async {
+    final labelController = TextEditingController(text: 'UPI');
+    final upiController = TextEditingController();
+
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            top: 8,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Add UPI ID',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: labelController,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  hintText: 'Google Pay, PhonePe, Paytm',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: upiController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'UPI ID',
+                  hintText: 'name@bank',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final upi = upiController.text.trim();
+                    if (!_isValidUpi(upi)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Enter a valid UPI ID like name@bank'),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(context, {
+                      'label': labelController.text.trim().isEmpty
+                          ? 'UPI'
+                          : labelController.text.trim(),
+                      'upiId': upi,
+                    });
+                  },
+                  icon: const Icon(LucideIcons.plus),
+                  label: const Text('Save UPI ID'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    labelController.dispose();
+    upiController.dispose();
+
+    if (result == null) return;
+
+    final existing = await _methodsRef(uid).limit(1).get();
+    await _methodsRef(uid).add({
+      'type': 'upi',
+      'label': result['label'],
+      'upiId': result['upiId'],
+      'isDefault': existing.docs.isEmpty,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+    _showSnack('UPI ID saved');
+  }
+
+  bool _isValidUpi(String value) {
+    return RegExp(r'^[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}$').hasMatch(value);
+  }
+
+  Future<void> _setDefault(String uid, String methodId) async {
+    final batch = FirebaseFirestore.instance.batch();
+    final methods = await _methodsRef(uid).get();
+    for (final method in methods.docs) {
+      batch.update(method.reference, {
+        'isDefault': method.id == methodId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    if (!mounted) return;
+    _showSnack('Default payment method updated');
+  }
+
+  Future<void> _deleteMethod(
+    String uid,
+    QueryDocumentSnapshot<Map<String, dynamic>> method,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete payment method?'),
+        content: Text(
+          'Remove ${method.data()['label'] ?? 'this method'} from your account?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final wasDefault = method.data()['isDefault'] == true;
+    await method.reference.delete();
+
+    if (wasDefault) {
+      final next = await _methodsRef(uid).limit(1).get();
+      if (next.docs.isNotEmpty) {
+        await next.docs.first.reference.update({
+          'isDefault': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    if (!mounted) return;
+    _showSnack('Payment method removed');
+  }
+
+  Future<void> _toggleQuickPay(bool value) async {
+    setState(() => quickPayEnabled = value);
+    await AppPreferencesService.setQuickPay(value);
+  }
+
+  Future<void> _toggleAutoPay(bool value) async {
+    setState(() => autoPayEnabled = value);
+    await AppPreferencesService.setAutoPay(value);
+  }
+
+  Future<void> _toggleBiometricPayments(bool value) async {
+    setState(() => biometricPayments = value);
+    await AppPreferencesService.setBiometricPayments(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(
+        title: const Text('Payment Methods'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: user == null
+          ? _emptyState('Sign in to manage payment methods')
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _methodsStream(user.uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return _emptyState('Unable to load payment methods');
+                }
+
+                final methods = snapshot.data!.docs;
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    const WorkablePageHeader(
+                      title: 'Payment readiness',
+                      subtitle:
+                          'Save trusted UPI aliases and choose how fast checkout should feel.',
+                      icon: LucideIcons.creditCard,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () => _addUpiMethod(user.uid),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add UPI ID'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton.outlined(
+                          icon: const Icon(Icons.settings),
+                          onPressed: () =>
+                              _showSnack('Payment preferences saved locally'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Saved Methods',
+                      style: TextStyle(
+                        color: WorkableDesign.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (methods.isEmpty)
+                      _emptyState('No saved payment methods yet')
+                    else
+                      ...methods.map(
+                        (method) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildPaymentCard(user.uid, method),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    _buildUnavailableMethods(),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Payment Preferences',
+                      style: TextStyle(
+                        color: WorkableDesign.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildToggle(
+                      title: 'Quick Pay',
+                      subtitle: 'Skip extra confirmation under Rs. 500',
+                      value: quickPayEnabled,
+                      onChanged: _toggleQuickPay,
+                      icon: LucideIcons.zap,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildToggle(
+                      title: 'Auto-pay for Bookings',
+                      subtitle: 'Use your default method when available',
+                      value: autoPayEnabled,
+                      onChanged: _toggleAutoPay,
+                      icon: LucideIcons.settings,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildToggle(
+                      title: 'Biometric Payment Lock',
+                      subtitle: 'Require device unlock before payment',
+                      value: biometricPayments,
+                      onChanged: _toggleBiometricPayments,
+                      icon: LucideIcons.shield,
+                    ),
+                    const SizedBox(height: 24),
+                    _buildSecurityNote(),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildPaymentCard(
+    String uid,
+    QueryDocumentSnapshot<Map<String, dynamic>> method,
+  ) {
+    final data = method.data();
+    final isDefault = data['isDefault'] == true;
+
     return InkWell(
-      onTap: () => setState(() => selectedMethod = id),
+      onTap: () => _setDefault(uid, method.id),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue[50] : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: WorkableDesign.surface,
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected ? Colors.blue : Colors.grey.shade200,
-            width: 2,
+            color: isDefault ? WorkableDesign.primary : WorkableDesign.border,
+            width: isDefault ? 1.5 : 1,
           ),
         ),
         child: Row(
@@ -41,10 +351,14 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(50),
+                color: WorkableDesign.success,
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: Colors.white, size: 20),
+              child: const Icon(
+                LucideIcons.smartphone,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -53,51 +367,97 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        title,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(width: 8),
-                      if (isDefault)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green[100],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Default',
-                            style: TextStyle(fontSize: 10, color: Colors.green),
-                          ),
+                      Flexible(
+                        child: Text(
+                          data['label']?.toString() ?? 'UPI',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      if (isDefault) ...[
+                        const SizedBox(width: 8),
+                        _defaultPill(),
+                      ],
                     ],
                   ),
+                  const SizedBox(height: 3),
                   Text(
-                    subtitle,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    data['upiId']?.toString() ?? '',
+                    style: TextStyle(color: WorkableDesign.muted, fontSize: 12),
                   ),
-                  if (balance != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        '₹$balance available',
-                        style: const TextStyle(
-                          color: Colors.green,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            if (isSelected) const Icon(Icons.check, color: Colors.blue),
-            Icon(Icons.more_vert, color: Colors.grey[400], size: 18),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'default') _setDefault(uid, method.id);
+                if (value == 'delete') _deleteMethod(uid, method);
+              },
+              itemBuilder: (context) => [
+                if (!isDefault)
+                  const PopupMenuItem(
+                    value: 'default',
+                    child: Text('Set as default'),
+                  ),
+                const PopupMenuItem(value: 'delete', child: Text('Delete')),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _defaultPill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: WorkableDesign.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: const Text(
+        'Default',
+        style: TextStyle(fontSize: 10, color: WorkableDesign.success),
+      ),
+    );
+  }
+
+  Widget _buildUnavailableMethods() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Coming with Gateway Integration',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: _disabledMethod(LucideIcons.creditCard, 'Cards')),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _disabledMethod(LucideIcons.building2, 'Bank Account'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _disabledMethod(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: WorkableDesign.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: WorkableDesign.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: WorkableDesign.muted),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(color: WorkableDesign.muted)),
+        ],
       ),
     );
   }
@@ -112,19 +472,19 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
+        color: WorkableDesign.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: WorkableDesign.border),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8F8F8),
-              shape: BoxShape.circle,
+            decoration: BoxDecoration(
+              color: WorkableDesign.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, size: 18, color: Colors.grey[700]),
+            child: Icon(icon, size: 18, color: WorkableDesign.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -133,334 +493,69 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: WorkableDesign.muted),
                 ),
               ],
             ),
           ),
-          Switch(value: value, onChanged: onChanged, activeColor: Colors.blue),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.3,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new_rounded,
-            color: Colors.grey,
-          ),
-          onPressed: () => Navigator.pop(context),
+  Widget _buildSecurityNote() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: WorkableDesign.primary.withValues(alpha: 0.08),
+        border: Border.all(
+          color: WorkableDesign.primary.withValues(alpha: 0.18),
         ),
-        title: const Text(
-          'Payment Methods',
-          style: TextStyle(color: Colors.black),
-        ),
-        centerTitle: false,
+        borderRadius: BorderRadius.circular(8),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: const Row(
+        children: [
+          Icon(LucideIcons.shield, size: 20, color: WorkableDesign.primary),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Only UPI aliases are saved here. Card and bank storage will be added with a certified payment gateway.',
+              style: TextStyle(color: WorkableDesign.muted, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 36),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Quick actions
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onPressed: () {},
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add New Method'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.white,
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.settings, color: Colors.grey),
-                    onPressed: () {},
-                  ),
-                ),
-              ],
+            const Icon(
+              LucideIcons.creditCard,
+              color: WorkableDesign.muted,
+              size: 38,
             ),
-            const SizedBox(height: 20),
-
-            // Saved methods
-            const Text(
-              'Saved Methods',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            _buildPaymentCard(
-              id: 'card-1',
-              icon: LucideIcons.creditCard,
-              title: 'HDFC Debit Card',
-              subtitle: '**** **** **** 4521',
-              isDefault: true,
-              bgColor: Colors.blue,
-            ),
-            const SizedBox(height: 12),
-            _buildPaymentCard(
-              id: 'upi-1',
-              icon: LucideIcons.smartphone,
-              title: 'Google Pay',
-              subtitle: 'john.doe@okhdfcbank',
-              bgColor: Colors.green,
-            ),
-            const SizedBox(height: 12),
-            _buildPaymentCard(
-              id: 'wallet-1',
-              icon: LucideIcons.wallet,
-              title: 'Workable Wallet',
-              subtitle: 'Digital wallet',
-              balance: '150',
-              bgColor: Colors.purple,
-            ),
-            const SizedBox(height: 12),
-            _buildPaymentCard(
-              id: 'bank-1',
-              icon: LucideIcons.building2,
-              title: 'HDFC Bank Account',
-              subtitle: '****1234 - Savings',
-              bgColor: Colors.indigo,
-            ),
-            const SizedBox(height: 24),
-
-            // Preferences
-            const Text(
-              'Payment Preferences',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            _buildToggle(
-              title: 'Quick Pay',
-              subtitle: 'Skip verification for amounts under ₹500',
-              value: quickPayEnabled,
-              onChanged: (val) => setState(() => quickPayEnabled = val),
-              icon: LucideIcons.zap,
-            ),
-            const SizedBox(height: 12),
-            _buildToggle(
-              title: 'Auto-pay for Bookings',
-              subtitle: 'Automatically pay when booking is confirmed',
-              value: false,
-              onChanged: (val) {},
-              icon: LucideIcons.settings,
-            ),
-            const SizedBox(height: 12),
-            _buildToggle(
-              title: 'Biometric Authentication',
-              subtitle: 'Use fingerprint/face unlock for payments',
-              value: true,
-              onChanged: (val) {},
-              icon: LucideIcons.shield,
-            ),
-            const SizedBox(height: 24),
-
-            // Security note
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue[50],
-                border: Border.all(color: Colors.blue.shade100),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(LucideIcons.shield, size: 20, color: Colors.blue),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Your payments are secure',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.blue,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'We use bank-level encryption and never store your full card details.',
-                          style: TextStyle(
-                            color: Colors.blueGrey,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Payment limit
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.grey.shade100),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Daily Payment Limit',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '₹5,000 remaining today',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text(
-                          'Modify',
-                          style: TextStyle(color: Colors.blue),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  LinearProgressIndicator(
-                    value: 0.6,
-                    backgroundColor: Colors.grey[200],
-                    color: Colors.blue,
-                    minHeight: 8,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Add new options
-            const Text(
-              'Add New Payment Method',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            GridView(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.5,
-              ),
-              children: [
-                _buildAddMethodTile(
-                  LucideIcons.creditCard,
-                  'Credit/Debit Card',
-                ),
-                _buildAddMethodTile(LucideIcons.smartphone, 'UPI ID'),
-                _buildAddMethodTile(LucideIcons.building2, 'Bank Account'),
-                _buildAddMethodTile(LucideIcons.wallet, 'Digital Wallet'),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Help
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(LucideIcons.alertCircle, color: Colors.grey),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Need Help?',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Contact support for payment issues',
-                          style: TextStyle(fontSize: 13, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            const SizedBox(height: 10),
+            Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAddMethodTile(IconData icon, String label) {
-    return InkWell(
-      onTap: () {},
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade200),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 24, color: Colors.grey[700]),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 }

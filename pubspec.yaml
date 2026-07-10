@@ -10,7 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   
+  
   # Core utilities
+  http: ^1.2.0   
   intl: ^0.18.1 
   shared_preferences: ^2.2.2
   cupertino_icons: ^1.0.8
@@ -67,6 +69,7 @@ dependencies:
   dio: ^5.4.0       
   equatable: ^2.0.5
   dartz: ^0.10.1
+  cloud_functions: ^4.7.6
 
 dev_dependencies:
   flutter_test:

@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/theme/workable_design.dart';
+import '../../services/worker_visibility_service.dart';
+import '../../widgets/worker_visibility_status_panel.dart';
 import 'base_account_screen.dart';
 
 class WorkerAccountScreen extends BaseAccountScreen {
   static const routeName = '/worker-account';
 
-  const WorkerAccountScreen({Key? key}) : super(key: key);
+  const WorkerAccountScreen({super.key});
 
   @override
   State<WorkerAccountScreen> createState() => _WorkerAccountScreenState();
@@ -27,6 +30,8 @@ class _WorkerAccountScreenState
   @override
   Future<void> fetchTypeSpecificData(String uid, String userType) async {
     try {
+      await WorkerVisibilityService().syncWorkerVisibility(uid);
+
       // Fetch worker-specific data
       final workerDoc = await FirebaseFirestore.instance
           .collection('workers')
@@ -49,8 +54,9 @@ class _WorkerAccountScreenState
         });
       }
     } catch (e) {
-      print('Error fetching worker data: $e');
+      debugPrint('Error fetching worker data: $e');
       // Handle error gracefully
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to load worker data: $e'),
@@ -63,13 +69,11 @@ class _WorkerAccountScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: const Text("Worker Dashboard"),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        centerTitle: true,
+        backgroundColor: WorkableDesign.surface,
+        foregroundColor: WorkableDesign.ink,
         actions: [
           // Availability Toggle
           Column(
@@ -78,8 +82,8 @@ class _WorkerAccountScreenState
               Switch(
                 value: isAvailable,
                 onChanged: (value) => _toggleAvailability(value),
-                activeColor: Colors.green,
-                inactiveThumbColor: Colors.grey,
+                activeColor: WorkableDesign.success,
+                inactiveThumbColor: WorkableDesign.muted,
               ),
             ],
           ),
@@ -93,6 +97,9 @@ class _WorkerAccountScreenState
           children: [
             // Profile Card with Availability Status
             _buildWorkerProfileCard(),
+            const SizedBox(height: 16),
+
+            _buildVisibilityStatusCard(),
             const SizedBox(height: 24),
 
             // Worker Stats
@@ -135,20 +142,18 @@ class _WorkerAccountScreenState
     );
   }
 
+  Widget _buildVisibilityStatusCard() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return WorkerVisibilityStatusPanel(
+      workerId: uid ?? '',
+      margin: EdgeInsets.zero,
+    );
+  }
+
   Widget _buildWorkerProfileCard() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: WorkableDesign.cardDecoration(),
       child: Column(
         children: [
           Row(
@@ -157,7 +162,9 @@ class _WorkerAccountScreenState
                 children: [
                   CircleAvatar(
                     radius: 32,
-                    backgroundColor: Colors.blue.shade100,
+                    backgroundColor: WorkableDesign.accent.withValues(
+                      alpha: 0.1,
+                    ),
                     backgroundImage: profileImageUrl != null
                         ? NetworkImage(profileImageUrl!)
                         : null,
@@ -169,7 +176,7 @@ class _WorkerAccountScreenState
                             style: const TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
-                              color: Colors.blue,
+                              color: WorkableDesign.accent,
                             ),
                           )
                         : null,
@@ -182,7 +189,9 @@ class _WorkerAccountScreenState
                       width: 20,
                       height: 20,
                       decoration: BoxDecoration(
-                        color: isAvailable ? Colors.green : Colors.grey,
+                        color: isAvailable
+                            ? WorkableDesign.success
+                            : WorkableDesign.muted,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2),
                       ),
@@ -217,7 +226,7 @@ class _WorkerAccountScreenState
                           const Icon(
                             Icons.verified,
                             size: 16,
-                            color: Colors.green,
+                            color: WorkableDesign.success,
                           ),
                         ],
                       ],
@@ -230,8 +239,8 @@ class _WorkerAccountScreenState
                       ),
                       decoration: BoxDecoration(
                         color: isAvailable
-                            ? Colors.green.shade100
-                            : Colors.grey.shade100,
+                            ? WorkableDesign.success.withValues(alpha: 0.1)
+                            : WorkableDesign.muted.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -240,8 +249,8 @@ class _WorkerAccountScreenState
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: isAvailable
-                              ? Colors.green.shade700
-                              : Colors.grey.shade700,
+                              ? WorkableDesign.success
+                              : WorkableDesign.muted,
                         ),
                       ),
                     ),
@@ -249,7 +258,10 @@ class _WorkerAccountScreenState
                       const SizedBox(height: 4),
                       Text(
                         serviceCategories.join(', '),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: WorkableDesign.muted,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -272,25 +284,27 @@ class _WorkerAccountScreenState
             completedJobs.toString(),
             "Completed",
             Icons.check_circle_outline,
-            Colors.green,
+            WorkableDesign.success,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            workerRating > 0 ? "${workerRating.toStringAsFixed(1)}★" : "0.0★",
+            workerRating > 0
+                ? "${workerRating.toStringAsFixed(1)} star"
+                : "0.0 star",
             "Rating",
             Icons.star_outline,
-            Colors.orange,
+            WorkableDesign.warning,
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            "₹${totalEarnings.toStringAsFixed(0)}",
+            "Rs ${totalEarnings.toStringAsFixed(0)}",
             "Earned",
             Icons.monetization_on_outlined,
-            Colors.blue,
+            WorkableDesign.primary,
           ),
         ),
       ],
@@ -305,17 +319,7 @@ class _WorkerAccountScreenState
   ) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: WorkableDesign.cardDecoration(),
       child: Column(
         children: [
           Icon(icon, color: color, size: 24),
@@ -329,14 +333,17 @@ class _WorkerAccountScreenState
             ),
           ),
           const SizedBox(height: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: WorkableDesign.muted),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildBusinessSection() {
-    return _buildSection("Business Management", [
+    return _buildSection("Work", [
       buildMenuItem(
         Icons.work_outline,
         "Active Jobs",
@@ -345,33 +352,33 @@ class _WorkerAccountScreenState
         onTap: () => _navigateToActiveJobs(),
       ),
       buildMenuItem(
+        Icons.volunteer_activism_outlined,
+        "Help Requests",
+        "Pickup, delivery, urgent help",
+        onTap: () => _navigateToHelpRequests(),
+      ),
+      buildMenuItem(
         Icons.history,
         "Job History",
         "$completedJobs completed jobs",
         onTap: () => _navigateToJobHistory(),
       ),
       buildMenuItem(
-        Icons.schedule,
-        "Schedule Management",
-        "Working hours: $workingHours",
-        onTap: () => _navigateToSchedule(),
-      ),
-      buildMenuItem(
-        Icons.location_on_outlined,
-        "Service Areas",
-        "Manage coverage areas",
-        onTap: () => _navigateToServiceAreas(),
+        Icons.chat_bubble_outline,
+        "Messages",
+        "Chat with customers",
+        onTap: () => _navigateToMessages(),
       ),
     ]);
   }
 
   Widget _buildEarningsSection() {
-    return _buildSection("Earnings & Payments", [
+    return _buildSection("Money", [
       buildMenuItem(
         Icons.account_balance_wallet_outlined,
-        "Earnings Overview",
-        "Total: ₹${totalEarnings.toStringAsFixed(0)}",
-        onTap: () => _navigateToEarningsOverview(),
+        "Earnings",
+        "Total: Rs ${totalEarnings.toStringAsFixed(0)}",
+        onTap: () => _navigateToEarnings(),
       ),
       buildMenuItem(
         Icons.payment,
@@ -385,28 +392,16 @@ class _WorkerAccountScreenState
         "Payment records",
         onTap: () => _navigateToTransactionHistory(),
       ),
-      buildMenuItem(
-        Icons.assessment,
-        "Earnings Analytics",
-        "Performance insights",
-        onTap: () => _navigateToEarningsAnalytics(),
-      ),
     ]);
   }
 
   Widget _buildWorkerToolsSection() {
-    return _buildSection("Worker Tools", [
+    return _buildSection("Business", [
       buildMenuItem(
-        Icons.rate_review,
-        "Customer Reviews",
-        "$totalReviews reviews received",
-        onTap: () => _navigateToCustomerReviews(),
-      ),
-      buildMenuItem(
-        Icons.chat_bubble_outline,
-        "Messages",
-        "Chat with customers",
-        onTap: () => _navigateToMessages(),
+        Icons.person_outline,
+        "Professional Profile",
+        "Profile, schedule, service area",
+        onTap: () => _navigateToProfessionalProfile(),
       ),
       buildMenuItem(
         Icons.photo_library,
@@ -415,21 +410,16 @@ class _WorkerAccountScreenState
         onTap: () => _navigateToPortfolio(),
       ),
       buildMenuItem(
-        Icons.school,
-        "Training Center",
-        "Improve your skills",
-        onTap: () => _navigateToTrainingCenter(),
+        Icons.radar_outlined,
+        "Opportunity Feed",
+        "Customer demand near you",
+        onTap: () => _navigateToOpportunities(),
       ),
-    ]);
-  }
-
-  Widget _buildSettingsSection() {
-    return _buildSection("Settings", [
       buildMenuItem(
-        Icons.person_outline,
-        "Professional Profile",
-        "Edit business details",
-        onTap: () => _navigateToProfessionalProfile(),
+        Icons.rate_review,
+        "Reviews & Ratings",
+        "$totalReviews reviews received",
+        onTap: () => _navigateToCustomerReviews(),
       ),
       buildMenuItem(
         Icons.verified_user_outlined,
@@ -438,12 +428,11 @@ class _WorkerAccountScreenState
         isVerified: isVerified,
         onTap: () => _navigateToVerificationStatus(),
       ),
-      buildMenuItem(
-        Icons.notifications_outlined,
-        "Notification Settings",
-        "Job alerts, messages",
-        onTap: () => _navigateToNotificationSettings(),
-      ),
+    ]);
+  }
+
+  Widget _buildSettingsSection() {
+    return _buildSection("Settings", [
       buildMenuItem(
         Icons.settings_outlined,
         "App Settings",
@@ -462,22 +451,12 @@ class _WorkerAccountScreenState
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: WorkableDesign.ink,
           ),
         ),
         const SizedBox(height: 12),
         Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
+          decoration: WorkableDesign.cardDecoration(),
           child: Column(children: items),
         ),
       ],
@@ -485,18 +464,20 @@ class _WorkerAccountScreenState
   }
 
   Widget _buildLogoutButton() {
-    return Container(
+    return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
         onPressed: handleLogout,
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.red.shade50,
-          foregroundColor: Colors.red,
+          backgroundColor: WorkableDesign.danger.withValues(alpha: 0.08),
+          foregroundColor: WorkableDesign.danger,
           elevation: 0,
           padding: const EdgeInsets.symmetric(vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.red.shade200),
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            side: BorderSide(
+              color: WorkableDesign.danger.withValues(alpha: 0.22),
+            ),
           ),
         ),
         child: const Row(
@@ -520,11 +501,17 @@ class _WorkerAccountScreenState
     });
 
     try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) {
+        throw StateError('No signed-in worker found');
+      }
+
       // Update in Firestore
-      await FirebaseFirestore.instance
-          .collection('workers')
-          .doc(FirebaseAuth.instance.currentUser!.uid)
-          .update({'isAvailable': value});
+      await FirebaseFirestore.instance.collection('workers').doc(uid).update({
+        'isAvailable': value,
+      });
+
+      if (!mounted) return;
 
       // Show confirmation
       ScaffoldMessenger.of(context).showSnackBar(
@@ -539,6 +526,8 @@ class _WorkerAccountScreenState
         ),
       );
     } catch (e) {
+      if (!mounted) return;
+
       // Revert the state if update fails
       setState(() {
         isAvailable = !value;
@@ -558,20 +547,16 @@ class _WorkerAccountScreenState
     Navigator.pushNamed(context, '/worker/active-jobs');
   }
 
+  void _navigateToHelpRequests() {
+    Navigator.pushNamed(context, '/worker/help-requests');
+  }
+
   void _navigateToJobHistory() {
     Navigator.pushNamed(context, '/worker/job-history');
   }
 
-  void _navigateToSchedule() {
-    Navigator.pushNamed(context, '/worker/schedule');
-  }
-
-  void _navigateToServiceAreas() {
-    Navigator.pushNamed(context, '/worker/service-areas');
-  }
-
-  void _navigateToEarningsOverview() {
-    Navigator.pushNamed(context, '/worker/earnings-overview');
+  void _navigateToEarnings() {
+    Navigator.pushNamed(context, '/worker/earnings');
   }
 
   void _navigateToPayoutMethods() {
@@ -580,10 +565,6 @@ class _WorkerAccountScreenState
 
   void _navigateToTransactionHistory() {
     Navigator.pushNamed(context, '/worker/transaction-history');
-  }
-
-  void _navigateToEarningsAnalytics() {
-    Navigator.pushNamed(context, '/worker/earnings-analytics');
   }
 
   void _navigateToCustomerReviews() {
@@ -598,20 +579,16 @@ class _WorkerAccountScreenState
     Navigator.pushNamed(context, '/worker/portfolio');
   }
 
-  void _navigateToTrainingCenter() {
-    Navigator.pushNamed(context, '/worker/training-center');
-  }
-
   void _navigateToProfessionalProfile() {
     Navigator.pushNamed(context, '/worker/professional-profile');
   }
 
-  void _navigateToVerificationStatus() {
-    Navigator.pushNamed(context, '/worker/verification-status');
+  void _navigateToOpportunities() {
+    Navigator.pushNamed(context, '/worker/opportunities');
   }
 
-  void _navigateToNotificationSettings() {
-    Navigator.pushNamed(context, '/worker/notification-settings');
+  void _navigateToVerificationStatus() {
+    Navigator.pushNamed(context, '/worker/verification-status');
   }
 
   void _navigateToAppSettings() {

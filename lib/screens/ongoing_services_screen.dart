@@ -2,10 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
+import 'customer_booking_detail_screen.dart';
 
 class OngoingServicesScreen extends StatefulWidget {
   static const routeName = '/ongoing-services';
+
   const OngoingServicesScreen({super.key});
 
   @override
@@ -13,540 +17,397 @@ class OngoingServicesScreen extends StatefulWidget {
 }
 
 class _OngoingServicesScreenState extends State<OngoingServicesScreen> {
-  String activeFilter = 'All';
-  String sortBy = 'time'; // Placeholder for future sort functionality
+  String _activeFilter = 'All';
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        leading: BackButton(color: Colors.black),
-        title: const Text(
-          'Ongoing Services',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('bookings')
-            .where('customerId', isEqualTo: currentUserId)
-            .orderBy('preferredDate')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(title: const Text('Ongoing Services')),
+      body: currentUserId == null
+          ? const WorkableEmptyState(
+              icon: LucideIcons.userX,
+              title: 'Sign in required',
+              message: 'Login again to view active services.',
+            )
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('bookings')
+                  .where('customerId', isEqualTo: currentUserId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return WorkableEmptyState(
+                    icon: LucideIcons.alertTriangle,
+                    title: 'Unable to load services',
+                    message: snapshot.error.toString(),
+                  );
+                }
 
-          // 🔹 Add here to check snapshot data
-          final currentUserId = FirebaseAuth.instance.currentUser!.uid;
-          print("Current User ID: $currentUserId");
-          print("Snapshot has data? ${snapshot.hasData}");
-          print("Docs length: ${snapshot.data?.docs.length}");
-          snapshot.data?.docs.forEach((doc) {
-            print(doc.data());
-          });
+                final bookings =
+                    (snapshot.data?.docs ?? [])
+                        .map((doc) => _OngoingBooking(doc.id, doc.data()))
+                        .where((booking) => booking.isActive)
+                        .toList()
+                      ..sort((a, b) => a.sortDate.compareTo(b.sortDate));
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text('No bookings found.', style: TextStyle(fontSize: 16)),
-            );
-          }
+                final visibleBookings = bookings.where(_matchesFilter).toList();
 
-          // Map Firestore data to a list of booking maps
-          List<Map<String, dynamic>> bookings = snapshot.data!.docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return {
-              'id': doc.id,
-              'service': data['issue'] ?? 'Service',
-              'worker': {
-                'name': data['workerName'] ?? 'Worker',
-                'rating': (data['rating'] ?? 0).toDouble(),
-                'phone': data['workerPhone'] ?? '', // optional
-                'image': _getInitials(data['workerName'] ?? 'W'),
-                'location': data['workerLocation'] ?? '',
+                return ListView(
+                  padding: const EdgeInsets.all(WorkableDesign.pagePadding),
+                  children: [
+                    const WorkablePageHeader(
+                      title: 'Track live services',
+                      subtitle:
+                          'Follow accepted, in-progress, completion and payment-stage bookings.',
+                      icon: LucideIcons.activity,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildStats(bookings),
+                    const SizedBox(height: 16),
+                    _buildFilters(),
+                    const SizedBox(height: 12),
+                    if (visibleBookings.isEmpty)
+                      WorkableEmptyState(
+                        icon: LucideIcons.briefcase,
+                        title: bookings.isEmpty
+                            ? 'No ongoing services'
+                            : 'No services in this filter',
+                        message:
+                            'Active bookings will appear here after a worker accepts your request.',
+                        actionLabel: 'Book a Service',
+                        onAction: () =>
+                            Navigator.pushNamed(context, '/book-service'),
+                      )
+                    else
+                      ...visibleBookings.map(_buildBookingCard),
+                  ],
+                );
               },
-              'status': data['status'] ?? 'confirmed',
-              'preferredDate': data['preferredDate'] ?? '',
-              'preferredTime': data['preferredTime'] ?? '',
-              'address': data['address'] ?? '',
-              'progress': data['status'] == 'in_progress'
-                  ? 50
-                  : 0, // placeholder
-              'lastUpdate': data['status'] == 'in_progress'
-                  ? 'Service started'
-                  : '',
-              'canCall': true,
-              'canMessage': true,
-              'canTrack': data.containsKey('workerLocation'),
-              'amount': data['payment'] ?? 'Cash',
-            };
-          }).toList();
-          // 🔹 Add here to check mapped bookings
-          print("Mapped bookings: $bookings");
-
-          // Apply filter
-          if (activeFilter == 'Today') {
-            final today = DateTime.now();
-            bookings = bookings.where((b) {
-              final date = DateTime.tryParse(b['preferredDate']) ?? today;
-              return date.day == today.day &&
-                  date.month == today.month &&
-                  date.year == today.year;
-            }).toList();
-          } else if (activeFilter == 'This Week') {
-            final now = DateTime.now();
-            final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-            final endOfWeek = startOfWeek.add(const Duration(days: 6));
-            bookings = bookings.where((b) {
-              final date = DateTime.tryParse(b['preferredDate']) ?? now;
-              return date.isAfter(
-                    startOfWeek.subtract(const Duration(days: 1)),
-                  ) &&
-                  date.isBefore(endOfWeek.add(const Duration(days: 1)));
-            }).toList();
-          }
-
-          // Calculate dynamic stats
-          final activeCount = bookings.length;
-          final inProgressCount = bookings
-              .where((b) => b['status'] == 'in_progress')
-              .length;
-          final upcomingCount = bookings
-              .where((b) => b['status'] == 'confirmed')
-              .length;
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              children: [
-                // Quick Stats
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildStatCard('$activeCount', 'Active', Colors.blue),
-                    _buildStatCard(
-                      '$inProgressCount',
-                      'In Progress',
-                      Colors.green,
-                    ),
-                    _buildStatCard('$upcomingCount', 'Upcoming', Colors.orange),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Filter bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        _buildFilterChip('All'),
-                        _buildFilterChip('Today'),
-                        _buildFilterChip('This Week'),
-                      ],
-                    ),
-                    TextButton(
-                      onPressed: () {},
-                      child: const Text(
-                        'Sort by time',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Booking Cards
-                Column(
-                  children: bookings
-                      .map((booking) => _buildBookingCard(context, booking))
-                      .toList(),
-                ),
-              ],
             ),
-          );
-        },
-      ),
     );
   }
 
-  String _getInitials(String name) {
-    final parts = name.split(' ');
-    if (parts.length == 1) return parts[0][0];
-    return '${parts[0][0]}${parts[1][0]}';
+  bool _matchesFilter(_OngoingBooking booking) {
+    switch (_activeFilter) {
+      case 'Today':
+        final today = DateTime.now();
+        final date = booking.sortDate;
+        return date.year == today.year &&
+            date.month == today.month &&
+            date.day == today.day;
+      case 'Action':
+        return booking.needsAction;
+      default:
+        return true;
+    }
   }
 
-  Widget _buildStatCard(String count, String label, Color color) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade100),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2)],
+  Widget _buildStats(List<_OngoingBooking> bookings) {
+    final inProgress = bookings.where((booking) {
+      return booking.status == 'in_progress';
+    }).length;
+    final actionNeeded = bookings
+        .where((booking) => booking.needsAction)
+        .length;
+
+    return Row(
+      children: [
+        _StatCard(
+          value: bookings.length.toString(),
+          label: 'Active',
+          color: WorkableDesign.primary,
         ),
+        const SizedBox(width: 10),
+        _StatCard(
+          value: inProgress.toString(),
+          label: 'In Progress',
+          color: WorkableDesign.accent,
+        ),
+        const SizedBox(width: 10),
+        _StatCard(
+          value: actionNeeded.toString(),
+          label: 'Need Action',
+          color: WorkableDesign.warning,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilters() {
+    final filters = ['All', 'Today', 'Action'];
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: filters.map((filter) {
+        final selected = _activeFilter == filter;
+        return FilterChip(
+          label: Text(filter),
+          selected: selected,
+          onSelected: (_) => setState(() => _activeFilter = filter),
+          selectedColor: WorkableDesign.primary.withValues(alpha: 0.12),
+          checkmarkColor: WorkableDesign.primary,
+          labelStyle: TextStyle(
+            color: selected ? WorkableDesign.primary : WorkableDesign.muted,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildBookingCard(_OngoingBooking booking) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: WorkableSectionCard(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              count,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    booking.service,
+                    style: const TextStyle(
+                      color: WorkableDesign.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                WorkableStatusPill(
+                  label: booking.statusLabel,
+                  color: booking.statusColor,
+                  icon: booking.statusIcon,
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: booking.progress,
+              minHeight: 7,
+              backgroundColor: WorkableDesign.border,
+              valueColor: AlwaysStoppedAnimation<Color>(booking.statusColor),
+            ),
+            const SizedBox(height: 12),
+            WorkableInfoRow(
+              icon: LucideIcons.user,
+              text: 'Worker: ${booking.workerName}',
+            ),
+            const SizedBox(height: 8),
+            WorkableInfoRow(
+              icon: LucideIcons.clock,
+              text: '${booking.preferredDate} ${booking.preferredTime}'.trim(),
+            ),
+            const SizedBox(height: 8),
+            WorkableInfoRow(icon: LucideIcons.mapPin, text: booking.address),
+            const SizedBox(height: 8),
+            WorkableInfoRow(
+              icon: LucideIcons.wallet,
+              text: 'Payment: ${booking.paymentStatusLabel}',
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CustomerBookingDetailScreen(
+                        booking: {'id': booking.id, ...booking.data},
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(LucideIcons.externalLink),
+                label: const Text('Open Details'),
+              ),
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildFilterChip(String label) {
-    final isActive = activeFilter == label;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          activeFilter = label;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isActive ? Colors.blue.shade100 : Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: isActive ? Colors.blue : Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.value,
+    required this.label,
+    required this.color,
+  });
 
-  Widget _buildBookingCard(BuildContext context, Map<String, dynamic> booking) {
-    final worker = booking['worker'];
-    final statusColor = _getStatusColor(booking['status']);
-    final statusIcon = _getStatusIcon(booking['status']);
+  final String value;
+  final String label;
+  final Color color;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 1)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Status Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: statusColor,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    statusIcon,
-                    const SizedBox(width: 6),
-                    Text(
-                      _getStatusText(booking['status']),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-                Text(
-                  booking['preferredDate'],
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Service Title & Worker
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            booking['service'],
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: Colors.purple,
-                                child: Text(
-                                  worker['image'],
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    worker['name'],
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        LucideIcons.star,
-                                        size: 12,
-                                        color: Colors.amber,
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        worker['rating'].toString(),
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                      const Text(
-                                        " • ",
-                                        style: TextStyle(fontSize: 12),
-                                      ),
-                                      Text(
-                                        worker['location'] ?? '',
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(LucideIcons.moreVertical),
-                      onPressed: () {},
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Progress
-                if (booking['status'] == 'in_progress') ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Service Progress',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      Text(
-                        '${booking['progress']}%',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: booking['progress'] / 100,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.green,
-                      ),
-                      minHeight: 6,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    booking['lastUpdate'],
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                // Time & Address
-                Row(
-                  children: [
-                    const Icon(LucideIcons.clock, size: 14, color: Colors.grey),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        booking['preferredTime'],
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(
-                      LucideIcons.mapPin,
-                      size: 14,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        booking['address'],
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    const Icon(
-                      LucideIcons.dollarSign,
-                      size: 14,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      booking['amount'],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.black,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Actions
-                Row(
-                  children: [
-                    if (booking['canCall'])
-                      _buildActionBtn(
-                        worker['phone'],
-                        LucideIcons.phone,
-                        "Call",
-                        Colors.green,
-                      ),
-                    if (booking['canMessage'])
-                      _buildActionBtn(
-                        worker['phone'],
-                        LucideIcons.messageCircle,
-                        "Message",
-                        Colors.blue,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionBtn(
-    String phone,
-    IconData icon,
-    String label,
-    Color color,
-  ) {
+  @override
+  Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        child: OutlinedButton.icon(
-          icon: Icon(icon, color: color, size: 16),
-          label: Text(label, style: TextStyle(fontSize: 12, color: color)),
-          onPressed: () async {
-            if (label == 'Call' && phone.isNotEmpty) {
-              final uri = Uri(scheme: 'tel', path: phone);
-              if (await canLaunchUrl(uri)) launchUrl(uri);
-            } else if (label == 'Message' && phone.isNotEmpty) {
-              final uri = Uri(scheme: 'sms', path: phone);
-              if (await canLaunchUrl(uri)) launchUrl(uri);
-            }
-          },
-          style: OutlinedButton.styleFrom(
-            side: BorderSide(color: color.withOpacity(0.4)),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-          ),
+      child: WorkableSectionCard(
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                color: WorkableDesign.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  Color _getStatusColor(String status) {
+class _OngoingBooking {
+  const _OngoingBooking(this.id, this.data);
+
+  final String id;
+  final Map<String, dynamic> data;
+
+  String get status => _text(['status'], 'pending').toLowerCase();
+  String get paymentStatus => _text(['paymentStatus'], '').toLowerCase();
+  String get service => _text(['service', 'serviceType', 'issue'], 'Service');
+  String get workerName => _text(['workerName'], 'Worker');
+  String get address => _text(['address'], 'Address not available');
+  String get preferredDate => _text(['preferredDate'], '');
+  String get preferredTime => _text(['preferredTime'], '');
+
+  bool get isActive {
+    const active = {
+      'accepted',
+      'confirmed',
+      'in_progress',
+      'completion_requested',
+      'payment_due',
+      'payment_initiated',
+      'payment_under_review',
+      'reschedule_requested',
+    };
+    return active.contains(status) ||
+        paymentStatus == 'cash_pending_confirmation' ||
+        paymentStatus == 'customer_reported_paid';
+  }
+
+  bool get needsAction {
+    return status == 'completion_requested' ||
+        status == 'payment_due' ||
+        paymentStatus == 'rejected' ||
+        paymentStatus == 'payment_rejected';
+  }
+
+  double get progress {
     switch (status) {
+      case 'accepted':
       case 'confirmed':
-        return Colors.blue.shade100;
+        return 0.28;
       case 'in_progress':
-        return Colors.green.shade100;
+        return 0.48;
+      case 'completion_requested':
+        return 0.68;
+      case 'payment_due':
+      case 'payment_initiated':
+      case 'payment_under_review':
+        return 0.84;
       case 'completed':
-        return Colors.grey.shade200;
-      case 'cancelled':
-        return Colors.red.shade100;
+      case 'paid':
+        return 1;
       default:
-        return Colors.grey.shade200;
+        return 0.18;
     }
   }
 
-  Icon _getStatusIcon(String status) {
+  String get statusLabel => _label(status);
+  String get paymentStatusLabel {
+    if (paymentStatus.isEmpty) return 'Not started';
+    return _label(paymentStatus);
+  }
+
+  Color get statusColor {
     switch (status) {
       case 'confirmed':
-        return const Icon(LucideIcons.clock, size: 16);
+      case 'accepted':
+        return WorkableDesign.primary;
       case 'in_progress':
-        return const Icon(LucideIcons.loader, size: 16);
-      case 'completed':
-        return const Icon(LucideIcons.checkCircle, size: 16);
+        return WorkableDesign.accent;
+      case 'completion_requested':
+      case 'reschedule_requested':
+      case 'payment_due':
+      case 'payment_under_review':
+        return WorkableDesign.warning;
       default:
-        return const Icon(LucideIcons.alertCircle, size: 16);
+        return WorkableDesign.muted;
     }
   }
 
-  String _getStatusText(String status) {
+  IconData get statusIcon {
     switch (status) {
-      case 'confirmed':
-        return 'Worker Confirmed';
       case 'in_progress':
-        return 'Service in Progress';
-      case 'completed':
-        return 'Completed';
-      case 'cancelled':
-        return 'Cancelled';
+        return LucideIcons.activity;
+      case 'completion_requested':
+      case 'reschedule_requested':
+        return LucideIcons.clock;
+      case 'payment_due':
+      case 'payment_under_review':
+        return LucideIcons.wallet;
       default:
-        return status;
+        return LucideIcons.briefcase;
     }
+  }
+
+  DateTime get sortDate {
+    final value = data['preferredDate'];
+    if (value is Timestamp) return value.toDate();
+    if (value is String) {
+      final parsedIso = DateTime.tryParse(value);
+      if (parsedIso != null) return parsedIso;
+      final parts = value.split('/');
+      if (parts.length == 3) {
+        final day = int.tryParse(parts[0]);
+        final month = int.tryParse(parts[1]);
+        final year = int.tryParse(parts[2]);
+        if (day != null && month != null && year != null) {
+          return DateTime(year, month, day);
+        }
+      }
+    }
+    return DateTime(2100);
+  }
+
+  String _text(List<String> keys, String fallback) {
+    for (final key in keys) {
+      final value = data[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return fallback;
+  }
+
+  String _label(String value) {
+    return value
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
   }
 }

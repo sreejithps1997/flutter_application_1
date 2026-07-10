@@ -35,6 +35,38 @@ class DocumentOcrHelper {
     return {'number': number, 'name': name};
   }
 
+  static Future<Map<String, String>> extractPANDetails(File file) async {
+    final inputImage = InputImage.fromFile(file);
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    final recognizedText = await textRecognizer.processImage(inputImage);
+    await textRecognizer.close();
+
+    String number = '';
+    String name = '';
+
+    for (final block in recognizedText.blocks) {
+      for (final line in block.lines) {
+        final text = line.text.trim();
+
+        if (number.isEmpty &&
+            RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$').hasMatch(text)) {
+          number = text;
+        }
+
+        if (name.isEmpty &&
+            text.length > 5 &&
+            !text.contains(RegExp(r'\d')) &&
+            !text.toUpperCase().contains('INCOME TAX') &&
+            !text.toUpperCase().contains('GOVT') &&
+            !text.toUpperCase().contains('DEPARTMENT')) {
+          name = text;
+        }
+      }
+    }
+
+    return {'number': number, 'name': name};
+  }
+
   static Future<Map<String, String>> extractPassportDetails(File file) async {
     final inputImage = InputImage.fromFile(file);
     final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);

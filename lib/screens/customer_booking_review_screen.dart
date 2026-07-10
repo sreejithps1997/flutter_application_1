@@ -96,6 +96,17 @@ class _CustomerBookingReviewScreenState
                   .toStringAsFixed(1),
             );
 
+      await FirebaseFirestore.instance
+          .collection('workers')
+          .doc(widget.workerId)
+          .set({
+            'averageRating': newAverage,
+            'rating': newAverage,
+            'reviewCount': validRatings.length,
+            'totalReviews': validRatings.length,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Review submitted successfully!")),
@@ -108,12 +119,13 @@ class _CustomerBookingReviewScreenState
         );
       }
     } catch (e) {
-      print('Error submitting review: $e');
+      debugPrint('Error submitting review: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Failed to submit review.")));
     } finally {
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -424,6 +436,7 @@ class _CustomerBookingReviewScreenState
                           Navigator.pop(context);
                         }
                       } catch (e) {
+                        if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text("Error deleting review."),

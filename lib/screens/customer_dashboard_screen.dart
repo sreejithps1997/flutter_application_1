@@ -6,24 +6,21 @@ import 'package:geolocator/geolocator.dart';
 
 import '../widgets/custom_button.dart';
 import '../widgets/star_rating.dart';
-import '../utils/location_helper.dart';
 import 'worker_profile_screen.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/notification_service.dart';
-import 'my_account_screen.dart';
-
 import '../widgets/verification_tier_badge.dart';
-import '../services/verification_tier_manager.dart';
 
 import '../services/user_type_service.dart';
-import 'account/customer_account_screen.dart';
-import 'account/worker_account_screen.dart';
 import 'account/account_screen_factory.dart';
+import '../core/theme/workable_design.dart';
+import '../features/help_requests/presentation/customer_help_requests_screen.dart';
+import '../features/smart_booking/presentation/smart_booking_assistant_screen.dart';
+import 'generic_help_request_screen.dart';
 
 class CustomerDashboardScreen extends StatefulWidget {
   static const routeName = '/customer-dashboard';
 
-  const CustomerDashboardScreen({Key? key}) : super(key: key);
+  const CustomerDashboardScreen({super.key});
 
   @override
   State<CustomerDashboardScreen> createState() =>
@@ -96,7 +93,7 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
             floor: null,
             isMocked: false,
           );
-          print(
+          debugPrint(
             "📍 Loaded location: ${currentPosition?.latitude}, ${currentPosition?.longitude}",
           );
         }
@@ -113,26 +110,8 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
         availableSkills = snapshot.docs.map((doc) => doc.id).toList();
       });
     } catch (e) {
-      print('Error fetching skills: $e');
+      debugPrint('Error fetching skills: $e');
     }
-  }
-
-  Future<void> _loadUserName() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      setState(() {
-        userName = doc.data()?['name'] ?? 'Customer';
-      });
-    }
-  }
-
-  Future<void> _getCurrentLocation() async {
-    currentPosition = await LocationHelper.getCurrentLocation();
-    setState(() {});
   }
 
   void _openAdvancedFilter() {
@@ -312,32 +291,12 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
     }
   }
 
-  void handleBookingAttempt(
+  void handleBookingAttemptQuick(
     BuildContext context,
-    String tier,
+    String _,
     String workerId,
     String workerName,
   ) {
-    if (tier == 'new') {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text("Verification Required"),
-          content: const Text(
-            "This worker has not yet completed their identity verification. Please choose a verified worker for booking.",
-          ),
-          actions: [
-            TextButton(
-              child: const Text("OK"),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    // ✅ Allow booking / profile view
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -347,75 +306,219 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
     );
   }
 
-  // Future<void> handleBookingAttemptQuick(
-  //   BuildContext context,
-  //   String cachedTier,
-  //   String workerId,
-  //   String workerName,
-  // ) async {
-  //   String effectiveTier = cachedTier;
-
-  //   // 🧠 Only fetch fresh tier if cached says "new"
-  //   if (cachedTier == 'new') {
-  //     effectiveTier = await VerificationTierManager().getUserVerificationTier(
-  //       workerId,
-  //     );
-  //   }
-
-  //   if (effectiveTier == 'new') {
-  //     _showBlockedDialog(context);
-  //     return;
-  //   }
-
-  //   // ✅ Tier is verified or police_verified, allow booking
-  //   Navigator.push(
-  //     context,
-  //     MaterialPageRoute(
-  //       builder: (_) =>
-  //           WorkerProfileScreen(workerId: workerId, name: workerName),
-  //     ),
-  //   );
-  // }
-
-  Future<void> handleBookingAttemptQuick(
-    BuildContext context,
-    String cachedTier,
-    String workerId,
-    String workerName,
-  ) async {
-    String effectiveTier = cachedTier;
-
-    // 🔄 Still fetch fresh tier if it's marked as 'new'
-    if (cachedTier == 'new') {
-      effectiveTier = await VerificationTierManager().getUserVerificationTier(
-        workerId,
-      );
-    }
-
-    // ✅ Regardless of tier (even 'new'), allow viewing/booking
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            WorkerProfileScreen(workerId: workerId, name: workerName),
-      ),
-    );
+  List<String> _workerSkills(Map<String, dynamic> data) {
+    return (data['skills'] as List<dynamic>?)
+            ?.map((skill) => skill.toString().trim())
+            .where((skill) => skill.isNotEmpty)
+            .toList() ??
+        [];
   }
 
-  void _showBlockedDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Verification Required"),
-        content: const Text(
-          "This worker has not yet completed their identity verification. Please choose a verified worker for booking.",
-        ),
-        actions: [
-          TextButton(
-            child: const Text("OK"),
-            onPressed: () => Navigator.pop(context),
+  String _pricingLabel(dynamic pricing) {
+    final text = pricing?.toString().trim();
+    if (text == null || text.isEmpty || text.toLowerCase() == 'null') {
+      return 'Rate not set';
+    }
+    return text.contains('Rs') || text.contains('/hr') || text.contains('hour')
+        ? text
+        : 'Rs $text / hr';
+  }
+
+  String _locationLabel(Map<String, dynamic> data) {
+    final parts = [data['area'], data['city'], data['addressArea']]
+        .where((part) {
+          final text = part?.toString().trim();
+          return text != null &&
+              text.isNotEmpty &&
+              text.toLowerCase() != 'null';
+        })
+        .map((part) => part.toString().trim())
+        .toList();
+
+    if (parts.isEmpty) return 'Service location added';
+    return parts.toSet().take(2).join(', ');
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Widget _buildWorkerCard(Map<String, dynamic> data, String id, String tier) {
+    final name = data['name']?.toString().trim().isNotEmpty == true
+        ? data['name'].toString().trim()
+        : 'Worker';
+    final imageUrl = data['imageUrl']?.toString().trim();
+    final skills = _workerSkills(data);
+    final visibleSkills = skills.take(3).toList();
+    final extraSkillCount = skills.length - visibleSkills.length;
+    final rating = (data['averageRating'] as num?)?.toDouble() ?? 0.0;
+    final reviewCount = _asInt(data['totalReviews'] ?? data['reviewCount']);
+    final distance = _calculateDistance(data);
+
+    return Card(
+      margin: const EdgeInsets.symmetric(
+        horizontal: WorkableDesign.pagePadding,
+        vertical: 8,
+      ),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        side: const BorderSide(color: WorkableDesign.border),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        onTap: () => handleBookingAttemptQuick(context, tier, id, name),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 76,
+                      height: 76,
+                      color: WorkableDesign.canvas,
+                      child: imageUrl != null && imageUrl.isNotEmpty
+                          ? Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.person, size: 34),
+                            )
+                          : const Icon(Icons.person, size: 34),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            VerificationTierBadge(tier: tier),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            StarRating(rating: rating),
+                            const SizedBox(width: 6),
+                            Text(
+                              reviewCount > 0
+                                  ? '${rating.toStringAsFixed(1)} ($reviewCount)'
+                                  : rating > 0
+                                  ? rating.toStringAsFixed(1)
+                                  : 'New',
+                              style: TextStyle(
+                                color: WorkableDesign.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 15,
+                              color: WorkableDesign.muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                distance != null
+                                    ? '${distance.toStringAsFixed(1)} km away'
+                                    : _locationLabel(data),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: WorkableDesign.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (visibleSkills.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final skill in visibleSkills)
+                      Chip(
+                        label: Text(skill),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: WorkableDesign.primary.withValues(
+                          alpha: 0.08,
+                        ),
+                        labelStyle: const TextStyle(
+                          color: WorkableDesign.primaryDark,
+                          fontSize: 12,
+                        ),
+                        side: BorderSide(
+                          color: WorkableDesign.primary.withValues(alpha: 0.16),
+                        ),
+                      ),
+                    if (extraSkillCount > 0)
+                      Chip(
+                        label: Text('+$extraSkillCount'),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _pricingLabel(data['pricing']),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () =>
+                        handleBookingAttemptQuick(context, tier, id, name),
+                    icon: const Icon(Icons.arrow_forward, size: 18),
+                    label: const Text('Profile'),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -423,6 +526,7 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
         title: Text('Hi, $userName'),
         actions: [
@@ -435,7 +539,7 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(WorkableDesign.pagePadding),
             child: TextField(
               decoration: const InputDecoration(
                 hintText: 'Search worker by name or category...',
@@ -501,8 +605,11 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
                       ) ??
                       0.0;
                   final distance = _calculateDistance(data);
+                  final isNotDisabled =
+                      data['accountDisabled'] != true &&
+                      data['accountStatus'] != 'disabled';
                   final passesDistanceFilter =
-                      distance == null || distance <= maxDistance;
+                      distance != null && distance <= maxDistance;
 
                   final matchesSearch =
                       searchQuery.isEmpty ||
@@ -515,6 +622,7 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
 
                   return matchesSearch &&
                       matchesSelectedService &&
+                      isNotDisabled &&
                       rating >= minRating &&
                       rate <= maxHourlyRate &&
                       passesDistanceFilter;
@@ -533,67 +641,7 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
                     final id = workers[index].id;
                     final tier = data['verification']?['tier'] ?? 'new';
 
-                    return Card(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundImage: data['imageUrl'] != null
-                              ? NetworkImage(data['imageUrl'])
-                              : null,
-                          child: data['imageUrl'] == null
-                              ? const Icon(Icons.person)
-                              : null,
-                        ),
-                        title: Text(data['name'] ?? ''),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (data['skills'] != null)
-                              Text((data['skills'] as List).join(', ')),
-
-                            VerificationTierBadge(
-                              tier: tier,
-                            ), // 👈 Add badge here
-
-                            StarRating(
-                              rating:
-                                  (data['averageRating'] as num?)?.toDouble() ??
-                                  0.0,
-                            ),
-
-                            Text('₹${data['pricing'] ?? '--'} / hr'),
-                            Text(
-                              _calculateDistance(data) != null
-                                  ? 'Distance: ${_calculateDistance(data)!.toStringAsFixed(1)} km'
-                                  : 'Distance: N/A',
-                            ),
-                          ],
-                        ),
-                        trailing: ElevatedButton(
-                          child: const Text('View Profile'),
-                          // onPressed: () {
-                          //   Navigator.push(
-                          //     context,
-                          //     MaterialPageRoute(
-                          //       builder: (_) => WorkerProfileScreen(
-                          //         workerId: id,
-                          //         name: data['name'] ?? '',
-                          //       ),
-                          //     ),
-                          //   );
-                          // },
-                          onPressed: () => handleBookingAttemptQuick(
-                            context,
-                            tier,
-                            id,
-                            data['name'] ?? '',
-                          ),
-                        ),
-                      ),
-                    );
+                    return _buildWorkerCard(data, id, tier);
                   },
                 );
               },
@@ -601,11 +649,47 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
           ),
         ],
       ),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'smart_booking',
+            onPressed: () => Navigator.pushNamed(
+              context,
+              SmartBookingAssistantScreen.routeName,
+            ),
+            icon: const Icon(Icons.auto_awesome),
+            label: const Text('Smart book'),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'my_help_requests',
+            onPressed: () => Navigator.pushNamed(
+              context,
+              CustomerHelpRequestsScreen.routeName,
+            ),
+            icon: const Icon(Icons.list_alt_outlined),
+            label: const Text('My help'),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'request_help',
+            onPressed: () => Navigator.pushNamed(
+              context,
+              GenericHelpRequestScreen.routeName,
+            ),
+            icon: const Icon(Icons.front_hand_outlined),
+            label: const Text('Request help'),
+          ),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onTabTapped,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: WorkableDesign.primary,
+        unselectedItemColor: WorkableDesign.muted,
+        backgroundColor: WorkableDesign.surface,
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),

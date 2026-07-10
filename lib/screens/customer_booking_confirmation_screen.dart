@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+
+import '../core/theme/workable_design.dart';
+import '../widgets/workable_ui.dart';
 import 'customer_dashboard_screen.dart';
 
 class CustomerBookingConfirmationScreen extends StatelessWidget {
@@ -17,50 +21,55 @@ class CustomerBookingConfirmationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.deepPurple.shade50,
+      backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
-        title: Text("Booking Confirmed"),
-        backgroundColor: Colors.deepPurple,
+        title: const Text('Booking Submitted'),
         automaticallyImplyLeading: false,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(WorkableDesign.pagePadding),
           children: [
-            AnimatedScale(
-              scale: 1.0,
-              duration: Duration(milliseconds: 600),
-              curve: Curves.easeOutBack,
-              child: Icon(Icons.check_circle, size: 100, color: Colors.green),
+            const WorkablePageHeader(
+              title: 'Request sent',
+              subtitle:
+                  'Your booking is now waiting for worker confirmation. You can track updates from bookings.',
+              icon: LucideIcons.checkCircle,
             ),
-            SizedBox(height: 24),
-            Text(
-              "Your booking has been successfully submitted!",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple.shade800,
+            const SizedBox(height: 16),
+            const WorkableSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  WorkableInfoRow(
+                    icon: LucideIcons.bell,
+                    text:
+                        'You will receive a notification after the worker accepts or responds.',
+                  ),
+                  SizedBox(height: 10),
+                  WorkableInfoRow(
+                    icon: LucideIcons.listChecks,
+                    text:
+                        'Booking progress, payment, completion and reviews stay connected in your bookings page.',
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 20),
-            Text(
-              "You will receive a notification once it's accepted by the worker.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-            SizedBox(height: 40),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _goToHome(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: Text("Back to Home"),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                context,
+                '/customer-bookings',
+                (route) => false,
               ),
+              icon: const Icon(LucideIcons.listChecks),
+              label: const Text('View My Bookings'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => _goToHome(context),
+              icon: const Icon(LucideIcons.home),
+              label: const Text('Back to Dashboard'),
             ),
           ],
         ),

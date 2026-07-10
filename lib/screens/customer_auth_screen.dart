@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../core/theme/workable_design.dart';
 import 'customer_login_screen.dart';
 import 'customer_signup_screen.dart';
 
@@ -10,49 +12,52 @@ class CustomerAuthScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.deepPurple.shade50,
+      backgroundColor: WorkableDesign.canvas,
+      appBar: AppBar(backgroundColor: WorkableDesign.canvas),
       body: SafeArea(
+        top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Spacer(),
-              Icon(Icons.person_outline, size: 90, color: Colors.deepPurple),
-              SizedBox(height: 24),
-              Text(
-                "Welcome, Customer",
+              const Spacer(),
+              _buildIdentityMark(),
+              const SizedBox(height: 28),
+              const Text(
+                'Get trusted help without the phone-call chaos.',
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepPurple.shade800,
+                  color: WorkableDesign.ink,
+                  fontSize: 30,
+                  height: 1.08,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
-                "Log in or sign up to book trusted workers for home services.",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+              const SizedBox(height: 12),
+              const Text(
+                'Log in to continue booking, or create an account to save addresses, track jobs, and pay securely.',
+                style: TextStyle(
+                  color: WorkableDesign.muted,
+                  fontSize: 15,
+                  height: 1.45,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              Spacer(),
-
-              // 🔐 Login Button
+              const SizedBox(height: 22),
+              _buildFeatureRow(Icons.verified_outlined, 'Verified workers'),
+              _buildFeatureRow(Icons.timeline_outlined, 'Live booking status'),
+              _buildFeatureRow(Icons.payments_outlined, 'Cash and UPI flow'),
+              const Spacer(),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: FilledButton(
                   onPressed: () {
                     Navigator.pushNamed(context, CustomerLoginScreen.routeName);
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text("Log In"),
+                  child: const Text('Log In'),
                 ),
               ),
-              SizedBox(height: 12),
-
-              // 🆕 Sign Up Button
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
@@ -62,27 +67,61 @@ class CustomerAuthScreen extends StatelessWidget {
                       CustomerSignupScreen.routeName,
                     );
                   },
-                  style: OutlinedButton.styleFrom(
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                    side: BorderSide(color: Colors.deepPurple),
-                  ),
-                  child: Text(
-                    "Sign Up",
-                    style: TextStyle(color: Colors.deepPurple),
-                  ),
+                  child: const Text('Create Customer Account'),
                 ),
               ),
-              Spacer(),
-
-              Text(
-                "By continuing, you agree to our Terms & Privacy Policy.",
+              const SizedBox(height: 18),
+              const Text(
+                'By continuing, you agree to our Terms and Privacy Policy.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(
+                  color: WorkableDesign.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              SizedBox(height: 16),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildIdentityMark() {
+    return Container(
+      width: 76,
+      height: 76,
+      decoration: BoxDecoration(
+        color: WorkableDesign.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: WorkableDesign.primary.withValues(alpha: 0.12),
+        ),
+      ),
+      child: const Icon(
+        Icons.person_search_outlined,
+        color: WorkableDesign.primary,
+        size: 38,
+      ),
+    );
+  }
+
+  Widget _buildFeatureRow(IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Icon(icon, color: WorkableDesign.primary, size: 19),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: WorkableDesign.ink,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

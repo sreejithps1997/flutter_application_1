@@ -1,11 +1,13 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../core/theme/workable_design.dart';
 import '../../models/worker_onboarding_data.dart';
+import '../../widgets/worker_onboarding_shell.dart';
 import 'step3_pricing_screen.dart';
 
 class Step2SkillsScreen extends StatefulWidget {
   static const routeName = '/step2-skills';
-
   final WorkerOnboardingData onboardingData;
 
   const Step2SkillsScreen({super.key, required this.onboardingData});
@@ -15,141 +17,144 @@ class Step2SkillsScreen extends StatefulWidget {
 }
 
 class _Step2SkillsScreenState extends State<Step2SkillsScreen> {
-  final List<Map<String, dynamic>> _skillCategoryData = [
-    {
-      "title": "House Cleaning",
-      "emoji": "🏠",
-      "bgColor": Color(0xFFE6F0FF),
-      "borderColor": Color(0xFFB3D1FF),
-      "skills": [
-        {"id": "Regular House Cleaning", "rate": "₹300–500"},
-        {"id": "Deep Cleaning", "rate": "₹800–1500"},
-        {"id": "Post-Renovation Cleaning", "rate": "₹1000–2000"},
-        {"id": "Kitchen Deep Cleaning", "rate": "₹400–700"},
+  final List<_SkillCategory> _categories = const [
+    _SkillCategory(
+      title: 'House Cleaning',
+      icon: Icons.cleaning_services_outlined,
+      skills: [
+        _SkillOption('Regular House Cleaning', 'Rs 300-500'),
+        _SkillOption('Deep Cleaning', 'Rs 800-1500'),
+        _SkillOption('Post-Renovation Cleaning', 'Rs 1000-2000'),
+        _SkillOption('Kitchen Deep Cleaning', 'Rs 400-700'),
       ],
-    },
-    {
-      "title": "Beauty & Salon",
-      "emoji": "💄",
-      "bgColor": Color(0xFFFFF0F5),
-      "borderColor": Color(0xFFFFD6E7),
-      "skills": [
-        {"id": "Men's Haircut", "rate": "₹100–300"},
-        {"id": "Women's Haircut & Styling", "rate": "₹200–500"},
-        {"id": "Facial & Cleanup", "rate": "₹300–800"},
-        {"id": "Manicure & Pedicure", "rate": "₹200–500"},
-        {"id": "Eyebrow Threading", "rate": "₹50–150"},
+    ),
+    _SkillCategory(
+      title: 'Beauty & Salon',
+      icon: Icons.spa_outlined,
+      skills: [
+        _SkillOption("Men's Haircut", 'Rs 100-300'),
+        _SkillOption("Women's Haircut & Styling", 'Rs 200-500'),
+        _SkillOption('Facial & Cleanup', 'Rs 300-800'),
+        _SkillOption('Manicure & Pedicure', 'Rs 200-500'),
+        _SkillOption('Eyebrow Threading', 'Rs 50-150'),
       ],
-    },
-    {
-      "title": "Appliance Repair",
-      "emoji": "🛠️",
-      "bgColor": Color(0xFFE8FFF0),
-      "borderColor": Color(0xFFAEEEC1),
-      "skills": [
-        {"id": "AC Servicing & Repair", "rate": "₹300–800"},
-        {"id": "Washing Machine Repair", "rate": "₹200–600"},
-        {"id": "Refrigerator Repair", "rate": "₹250–700"},
-        {"id": "TV & Electronics Repair", "rate": "₹200–1000"},
+    ),
+    _SkillCategory(
+      title: 'Appliance Repair',
+      icon: Icons.home_repair_service_outlined,
+      skills: [
+        _SkillOption('AC Servicing & Repair', 'Rs 300-800'),
+        _SkillOption('Washing Machine Repair', 'Rs 200-600'),
+        _SkillOption('Refrigerator Repair', 'Rs 250-700'),
+        _SkillOption('TV & Electronics Repair', 'Rs 200-1000'),
       ],
-    },
-    {
-      "title": "Home Maintenance",
-      "emoji": "🔨",
-      "bgColor": Color(0xFFFFF4E5),
-      "borderColor": Color(0xFFFFDAB3),
-      "skills": [
-        {"id": "Plumbing Services", "rate": "₹200–800"},
-        {"id": "Electrical Work", "rate": "₹200–600"},
-        {"id": "Painting Services", "rate": "₹15–25/sq ft"},
-        {"id": "Carpenter Services", "rate": "₹300–800"},
+    ),
+    _SkillCategory(
+      title: 'Home Maintenance',
+      icon: Icons.handyman_outlined,
+      skills: [
+        _SkillOption('Plumbing Services', 'Rs 200-800'),
+        _SkillOption('Electrical Work', 'Rs 200-600'),
+        _SkillOption('Painting Services', 'Rs 15-25/sq ft'),
+        _SkillOption('Carpenter Services', 'Rs 300-800'),
       ],
-    },
+    ),
   ];
 
-  final List<Map<String, String>> _experienceOptions = [
+  final List<Map<String, String>> _experienceOptions = const [
     {'label': 'Beginner', 'value': '<1 year'},
-    {'label': 'Intermediate', 'value': '1–2 years'},
-    {'label': 'Experienced', 'value': '3–5 years'},
+    {'label': 'Intermediate', 'value': '1-2 years'},
+    {'label': 'Experienced', 'value': '3-5 years'},
     {'label': 'Expert', 'value': '5+ years'},
     {'label': 'Master', 'value': '10+ years'},
   ];
 
   final Map<String, String> _selectedSkillExperience = {};
 
+  @override
+  void initState() {
+    super.initState();
+    _selectedSkillExperience.addAll(widget.onboardingData.skillExperience);
+  }
+
   void _openExperienceSelector(String skillName) {
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (_) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                "Select experience level for:",
-                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-              ),
-              Text(
-                skillName,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Experience level',
+                  style: TextStyle(
+                    color: WorkableDesign.ink,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              ..._experienceOptions.map((option) {
-                return ListTile(
-                  leading: Radio<String>(
-                    value: option['label']!,
+                const SizedBox(height: 6),
+                Text(
+                  skillName,
+                  style: const TextStyle(
+                    color: WorkableDesign.muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ..._experienceOptions.map((option) {
+                  final label = option['label']!;
+                  final value = option['value']!;
+                  return RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    value: label,
                     groupValue: _selectedSkillExperience[skillName],
+                    title: Text('$label ($value)'),
                     onChanged: (val) {
                       Navigator.pop(context);
                       setState(() {
                         _selectedSkillExperience[skillName] = val!;
                       });
                     },
-                  ),
-                  title: Text("${option['label']} (${option['value']})"),
-                  onTap: () {
-                    Navigator.pop(context);
-                    setState(() {
-                      _selectedSkillExperience[skillName] = option['label']!;
-                    });
-                  },
-                );
-              }),
-            ],
+                  );
+                }),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  void _continueToNextStep() async {
+  Future<void> _continueToNextStep() async {
     if (_selectedSkillExperience.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            "Please select at least one skill and experience level.",
-          ),
+          content: Text('Select at least one skill and experience level.'),
         ),
       );
       return;
     }
 
+    final callable = FirebaseFunctions.instanceFor(
+      region: 'us-central1',
+    ).httpsCallable('suggestWorkerSignupSkill');
     for (final entry in _selectedSkillExperience.entries) {
-      await FirebaseFirestore.instance.collection('skills').doc(entry.key).set({
-        'name': entry.key,
-      }, SetOptions(merge: true));
+      await callable.call<Map<String, dynamic>>({'skill': entry.key});
     }
 
+    if (!mounted) return;
     final updatedData = widget.onboardingData.copyWith(
       skills: _selectedSkillExperience.keys.toList(),
-      experienceLevel: 'custom',
+      skillExperience: _selectedSkillExperience,
+      experienceLevel: 'per_skill',
     );
 
     Navigator.pushNamed(
@@ -161,163 +166,142 @@ class _Step2SkillsScreenState extends State<Step2SkillsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text("Select Your Skills"),
-        backgroundColor: Colors.deepPurple,
+    return WorkerOnboardingShell(
+      title: 'Choose your services',
+      subtitle:
+          'Select only the work you can confidently accept. Accurate skills help customers book the right worker faster.',
+      step: 3,
+      totalSteps: 6,
+      bottom: FilledButton(
+        onPressed: _continueToNextStep,
+        child: Text(
+          _selectedSkillExperience.isEmpty
+              ? 'Continue'
+              : 'Continue (${_selectedSkillExperience.length})',
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      children: _categories.map(_buildCategoryCard).toList(),
+    );
+  }
+
+  Widget _buildCategoryCard(_SkillCategory category) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: WorkerOnboardingCard(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            LinearProgressIndicator(
-              value: 0.4,
-              color: Colors.deepPurple,
-              backgroundColor: Colors.grey[300],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView(
-                children: _skillCategoryData.map((category) {
-                  final String title = category['title'];
-                  final String emoji = category['emoji'];
-                  final Color bgColor = category['bgColor'];
-                  final Color borderColor = category['borderColor'];
-                  final List skills = category['skills'];
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: borderColor),
+            Row(
+              children: [
+                Icon(category.icon, color: WorkableDesign.accent, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    category.title,
+                    style: const TextStyle(
+                      color: WorkableDesign.ink,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(emoji, style: const TextStyle(fontSize: 20)),
-                              const SizedBox(width: 8),
-                              Text(
-                                title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          ...skills.map((skill) {
-                            final String skillId = skill['id'];
-                            final isSelected = _selectedSkillExperience
-                                .containsKey(skillId);
-
-                            return GestureDetector(
-                              onTap: () {
-                                if (_selectedSkillExperience.containsKey(
-                                  skillId,
-                                )) {
-                                  // If already selected, unselect it on tap
-                                  setState(() {
-                                    _selectedSkillExperience.remove(skillId);
-                                  });
-                                } else {
-                                  // Otherwise, open selector
-                                  _openExperienceSelector(skillId);
-                                }
-                              },
-
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 6),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? Colors.blue
-                                        : Colors.grey.shade300,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          skillId,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        Text(
-                                          "Typical rate: ${skill['rate']}",
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        if (isSelected)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 4.0,
-                                            ),
-                                            child: Text(
-                                              "Experience: ${_selectedSkillExperience[skillId]}",
-                                              style: const TextStyle(
-                                                color: Colors.blueAccent,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    Icon(
-                                      isSelected
-                                          ? Icons.check_box
-                                          : Icons.check_box_outline_blank,
-                                      color: isSelected
-                                          ? Colors.blue
-                                          : Colors.grey,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _continueToNextStep,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: Colors.deepPurple,
+                  ),
                 ),
-                child: const Text(
-                  "Continue",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ),
+              ],
             ),
+            const SizedBox(height: 12),
+            ...category.skills.map(_buildSkillTile),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildSkillTile(_SkillOption skill) {
+    final isSelected = _selectedSkillExperience.containsKey(skill.name);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () {
+          if (isSelected) {
+            setState(() => _selectedSkillExperience.remove(skill.name));
+          } else {
+            _openExperienceSelector(skill.name);
+          }
+        },
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? WorkableDesign.accent.withValues(alpha: 0.08)
+                : WorkableDesign.canvas,
+            borderRadius: BorderRadius.circular(WorkableDesign.radius),
+            border: Border.all(
+              color: isSelected
+                  ? WorkableDesign.accent.withValues(alpha: 0.35)
+                  : WorkableDesign.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      skill.name,
+                      style: const TextStyle(
+                        color: WorkableDesign.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isSelected
+                          ? 'Experience: ${_selectedSkillExperience[skill.name]}'
+                          : 'Typical rate: ${skill.rate}',
+                      style: TextStyle(
+                        color: isSelected
+                            ? WorkableDesign.accent
+                            : WorkableDesign.muted,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                isSelected
+                    ? Icons.check_circle
+                    : Icons.add_circle_outline_rounded,
+                color: isSelected
+                    ? WorkableDesign.accent
+                    : WorkableDesign.muted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SkillCategory {
+  final String title;
+  final IconData icon;
+  final List<_SkillOption> skills;
+
+  const _SkillCategory({
+    required this.title,
+    required this.icon,
+    required this.skills,
+  });
+}
+
+class _SkillOption {
+  final String name;
+  final String rate;
+
+  const _SkillOption(this.name, this.rate);
 }

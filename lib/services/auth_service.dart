@@ -3,6 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'notification_service.dart';
+import 'worker_visibility_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -14,6 +18,7 @@ class AuthService {
     required String password,
     required String name,
     required String userType, // "worker" or "customer"
+    String? phone,
     File? profileImage,
   }) async {
     try {
@@ -50,6 +55,7 @@ class AuthService {
         'uid': uid,
         'email': email,
         'name': name,
+        'phone': phone ?? '', // ✅ Add this line
         'userType': userType,
         'profileImageUrl': profileImageUrl ?? '',
         'createdAt': FieldValue.serverTimestamp(),
@@ -193,7 +199,7 @@ class AuthService {
     }
   }
 
-  // ✅ Password Reset
+  //✅ Password Reset
   Future<String?> sendPasswordResetEmail(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
@@ -205,34 +211,193 @@ class AuthService {
     }
   }
 
-  // ✅ Login
+  Future<String?> sendCustomResetEmail(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://192.168.29.209:3000/send-reset-email'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+
+      if (response.statusCode == 200) {
+        return null; // success
+      } else {
+        return "Failed to send reset email";
+      }
+    } catch (e) {
+      return "Error: ${e.toString()}";
+    }
+  }
+
+  // // ✅ Login
+  // Future<String?> loginUser({
+  //   required String email,
+  //   required String password,
+  // }) async {
+  //   try {
+  //     await _auth.signInWithEmailAndPassword(email: email, password: password);
+  //     return null; // Success
+  //   } on FirebaseAuthException catch (e) {
+  //     print('Firebase error code: ${e.code}');
+  //     print('Firebase error message: ${e.message}');
+  //     switch (e.code) {
+  //       case 'user-not-found':
+  //         return 'No account found with this email.';
+  //       case 'wrong-password':
+  //         return 'Incorrect password.';
+  //       case 'invalid-email':
+  //         return 'Invalid email address.';
+  //       case 'user-disabled':
+  //         return 'This account has been disabled.';
+  //       case 'invalid-credential':
+  //         return 'Invalid email or password.';
+  //       default:
+  //         return 'Login failed. Please try again.';
+  //     }
+  //   } catch (e) {
+  //     return 'An unexpected error occurred. Please try again.';
+  //   }
+  // }
+
+  // ✅ Login — supports both email and phone number
   Future<String?> loginUser({
     required String email,
     required String password,
+    required String userType, // ✅ NEW — 'customer' or 'worker'
   }) async {
     try {
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
-      return null; // Success
+      String loginEmail = email;
+
+      if (email.endsWith('@phone.workable.com')) {
+        final phone = email.replaceAll('@phone.workable.com', '');
+        final foundEmail = await _getEmailByPhone(phone);
+        if (foundEmail == null) {
+          return 'No account found with this phone number.';
+        }
+        loginEmail = foundEmail;
+      }
+
+      // Step 1 — Sign in
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: loginEmail,
+        password: password,
+      );
+
+      // Step 2 — ✅ Check userType from Firestore
+      final uid = credential.user?.uid;
+      if (uid != null) {
+        final doc = await _firestore.collection('users').doc(uid).get();
+        final savedUserType = doc.data()?['userType'] as String?;
+
+        if (savedUserType == null) {
+          await _auth.signOut();
+          return 'Account type not found. Please contact support.';
+        }
+
+        // if (savedUserType != userType) {
+        //   await _auth.signOut(); // ✅ Force sign out immediately
+        //   if (userType == 'customer') {
+        //     return 'This account is registered as a worker. Please use the Worker Login.';
+        //   } else {
+        //     return 'This account is registered as a customer. Please use the Customer Login.';
+        //   }
+        // }
+
+        if (userType == 'customer') {
+          // Customer login allows BOTH customer and admin
+          if (savedUserType != 'customer' && savedUserType != 'admin') {
+            await _auth.signOut();
+
+            return 'This account is registered as a worker. Please use the Worker Login.';
+          }
+        } else {
+          // Worker login only allows workers
+          if (savedUserType != userType) {
+            await _auth.signOut();
+
+            return 'This account is registered as a customer. Please use the Customer Login.';
+          }
+        }
+      }
+
+      return null; // ✅ Success — correct user type
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
         case 'user-not-found':
-          return 'No account found with this email.';
+          return 'No account found with this email or phone.';
         case 'wrong-password':
           return 'Incorrect password.';
         case 'invalid-email':
           return 'Invalid email address.';
         case 'user-disabled':
           return 'This account has been disabled.';
+        case 'invalid-credential':
+          return 'Invalid email/phone or password.';
         default:
-          return e.message ?? 'Login failed. Please try again.';
+          return 'Login failed. Please try again.';
       }
     } catch (e) {
       return 'An unexpected error occurred. Please try again.';
     }
   }
+  // // ✅ Helper — find email using phone number from Firestore
+  // Future<String?> _getEmailByPhone(String phone) async {
+  //   try {
+  //     final query = await _firestore
+  //         .collection('users')
+  //         .where('phone', isEqualTo: phone)
+  //         .limit(1)
+  //         .get();
+
+  //     if (query.docs.isEmpty) return null;
+  //     return query.docs.first.data()['email'] as String?;
+  //   } catch (e) {
+  //     print("Error finding email by phone: $e");
+  //     return null;
+  //   }
+  // }
+
+  Future<String?> _getEmailByPhone(String phone) async {
+    try {
+      print("🔍 Searching for phone: '$phone'");
+
+      // Search 1 — users collection (customers)
+      final userQuery = await _firestore
+          .collection('users')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isNotEmpty) {
+        final email = userQuery.docs.first.data()['email'] as String?;
+        print("✅ Found in users collection: $email");
+        return email;
+      }
+
+      // Search 2 — workers collection
+      final workerQuery = await _firestore
+          .collection('workers')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get();
+
+      if (workerQuery.docs.isNotEmpty) {
+        final email = workerQuery.docs.first.data()['email'] as String?;
+        print("✅ Found in workers collection: $email");
+        return email;
+      }
+
+      print("❌ Phone not found in any collection: $phone");
+      return null;
+    } catch (e) {
+      print("❌ Error finding email by phone: $e");
+      return null;
+    }
+  }
 
   // ✅ Logout
   Future<void> signOut() async {
+    await NotificationService.removeCurrentDeviceToken();
     await GoogleSignIn().signOut();
     await _auth.signOut();
   }
@@ -265,19 +430,31 @@ class AuthService {
       // Ensure required fields
       workerData['uid'] = user.uid;
       workerData['name'] = workerData['fullName'] ?? 'Unnamed Worker';
+      final profileImageUrl =
+          workerData['profileImageUrl']?.toString().trim() ?? '';
+      if (profileImageUrl.isNotEmpty) {
+        workerData['imageUrl'] = workerData['imageUrl'] ?? profileImageUrl;
+      }
       workerData['pricing'] = workerData['pricing'] ?? '₹300';
       workerData['averageRating'] = workerData['averageRating'] ?? 0.0;
       workerData['completedJobsCount'] = workerData['completedJobsCount'] ?? 0;
       workerData['earnings'] = workerData['earnings'] ?? 0.0;
-      workerData['location'] =
-          workerData['location'] ?? const GeoPoint(0.0, 0.0);
+      final geoLocation = _resolveWorkerLocation(workerData);
+      if (geoLocation != null) {
+        workerData['location'] = geoLocation;
+      } else {
+        workerData['location'] = workerData['location'] ?? const GeoPoint(0, 0);
+      }
       workerData['address'] = workerData['address'] ?? '';
+      workerData['visibleToUsers'] = workerData['visibleToUsers'] ?? false;
       workerData['updatedAt'] = FieldValue.serverTimestamp();
 
       await _firestore
           .collection('workers')
           .doc(user.uid)
           .set(workerData, SetOptions(merge: true));
+
+      await WorkerVisibilityService().syncWorkerVisibility(user.uid);
 
       print("✅ Worker data saved successfully");
       return null; // Success
@@ -310,5 +487,36 @@ class AuthService {
       print("Error checking email: $e");
       return false;
     }
+  }
+
+  GeoPoint? _resolveWorkerLocation(Map<String, dynamic> workerData) {
+    final location = workerData['location'];
+    if (location is GeoPoint) return location;
+
+    if (location is String) {
+      final parts = location.split(',');
+      if (parts.length == 2) {
+        final lat = double.tryParse(parts[0].trim());
+        final lng = double.tryParse(parts[1].trim());
+        if (_isUsableCoordinate(lat, lng)) return GeoPoint(lat!, lng!);
+      }
+    }
+
+    final lat = _asDouble(workerData['latitude']);
+    final lng = _asDouble(workerData['longitude']);
+    if (_isUsableCoordinate(lat, lng)) return GeoPoint(lat!, lng!);
+
+    return null;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  bool _isUsableCoordinate(double? lat, double? lng) {
+    if (lat == null || lng == null) return false;
+    if (lat == 0.0 && lng == 0.0) return false;
+    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
 }
