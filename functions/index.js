@@ -203,6 +203,10 @@ function notificationIdFor(parts) {
     .slice(0, 240);
 }
 
+function normalizeReferralCode(value) {
+  return stringValue(value).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+}
+
 async function setUserNotification({
   uid,
   notificationId,
@@ -334,6 +338,190 @@ async function markCouponRedeemed({
     redeemedTransactionId: transactionId,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, {merge: true});
+}
+
+async function createReferralConversionForUser(uid, userData) {
+  const code = normalizeReferralCode(userData && userData.referredByCode);
+  if (!uid || !code) return null;
+
+  const userRef = db.collection("users").doc(uid);
+  const referralRef = db.collection("referrals").doc(`referred_${uid}`);
+  const existingReferral = await referralRef.get();
+  if (existingReferral.exists) {
+    const existing = existingReferral.data() || {};
+    const existingCode = normalizeReferralCode(existing.referralCode);
+    if (existingCode && existingCode !== code) {
+      return userRef.set({
+        referredByUserId: stringValue(existing.referrerId),
+        referredByCode: existingCode,
+        referralStatus: stringValue(existing.status, "tracked"),
+        referralTamperBlockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+    return null;
+  }
+
+  const referrerSnapshot = await db
+    .collection("users")
+    .where("referralCode", "==", code)
+    .limit(1)
+    .get();
+
+  if (referrerSnapshot.empty) {
+    return userRef.set({
+      referredByCode: code,
+      referralStatus: "invalid_code",
+      referralCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+  }
+
+  const referrerDoc = referrerSnapshot.docs[0];
+  const referrerId = referrerDoc.id;
+  if (referrerId === uid) {
+    return userRef.set({
+      referredByCode: code,
+      referralStatus: "self_referral_blocked",
+      referralCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const referrer = referrerDoc.data() || {};
+  const referredName = textFrom(userData, ["name", "displayName"], "New customer");
+
+  const batch = db.batch();
+  batch.set(referralRef, {
+    referrerId,
+    referrerName: textFrom(referrer, ["name", "displayName"], "Workable user"),
+    referralCode: code,
+    referredUserId: uid,
+    referredUserName: referredName,
+    referredUserEmail: stringValue(userData && userData.email),
+    referredUserPhone: stringValue(
+      (userData && userData.phoneNumber) || (userData && userData.phone)
+    ),
+    status: "pending_first_paid_booking",
+    rewardStatus: "locked",
+    rewardAmount: 0,
+    rewardCurrency: "INR",
+    source: "signup_referral_code",
+    createdAt: now,
+    updatedAt: now,
+  }, {merge: true});
+  batch.set(userRef, {
+    referredByUserId: referrerId,
+    referredByCode: code,
+    referralStatus: "pending_first_paid_booking",
+    referralTrackedAt: now,
+    updatedAt: now,
+  }, {merge: true});
+  batch.set(referrerDoc.ref, {
+    referralSignupCount: admin.firestore.FieldValue.increment(1),
+    lastReferralSignupAt: now,
+    updatedAt: now,
+  }, {merge: true});
+  batch.set(
+    referrerDoc.ref.collection("notifications").doc(notificationIdFor([
+      "referral_joined",
+      uid,
+      referrerId,
+    ])),
+    {
+      title: "Your referral joined Workable",
+      message: `${referredName} signed up with your referral code. Reward unlocks after their first paid booking.`,
+      body: `${referredName} signed up with your referral code. Reward unlocks after their first paid booking.`,
+      type: "referral_joined",
+      status: "pending_first_paid_booking",
+      requiresAction: false,
+      notificationCategory: "referral",
+      category: "referral",
+      metadata: {
+        referredUserId: uid,
+        referralCode: code,
+        userRole: "customer",
+      },
+      isRead: false,
+      read: false,
+      createdAt: now,
+      updatedAt: now,
+      source: "cloud_function",
+    },
+    {merge: true}
+  );
+
+  return batch.commit();
+}
+
+async function unlockReferralRewardForCustomer({customerId, bookingId}) {
+  if (!customerId || !bookingId) return null;
+
+  const snapshot = await db
+    .collection("referrals")
+    .where("referredUserId", "==", customerId)
+    .where("status", "==", "pending_first_paid_booking")
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+
+  const referralDoc = snapshot.docs[0];
+  const referral = referralDoc.data() || {};
+  const referrerId = stringValue(referral.referrerId);
+  if (!referrerId) return null;
+
+  const rewardAmount = 50;
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const referrerRef = db.collection("users").doc(referrerId);
+  const batch = db.batch();
+
+  batch.set(referralDoc.ref, {
+    status: "completed",
+    rewardStatus: "ready_for_credit",
+    rewardAmount,
+    rewardCurrency: "INR",
+    firstPaidBookingId: bookingId,
+    completedAt: now,
+    updatedAt: now,
+  }, {merge: true});
+  batch.set(referrerRef, {
+    referralCompletedCount: admin.firestore.FieldValue.increment(1),
+    referralRewardPendingAmount: admin.firestore.FieldValue.increment(rewardAmount),
+    lastReferralRewardAt: now,
+    updatedAt: now,
+  }, {merge: true});
+  batch.set(
+    referrerRef.collection("notifications").doc(notificationIdFor([
+      "referral_reward_ready",
+      customerId,
+      bookingId,
+    ])),
+    {
+      title: "Referral reward unlocked",
+      message: `A referred customer completed their first paid booking. Rs ${rewardAmount} reward is ready for review.`,
+      body: `A referred customer completed their first paid booking. Rs ${rewardAmount} reward is ready for review.`,
+      type: "referral_reward_ready",
+      status: "reward_ready",
+      requiresAction: false,
+      notificationCategory: "referral",
+      category: "referral",
+      metadata: {
+        referredUserId: customerId,
+        bookingId,
+        rewardAmount: String(rewardAmount),
+        userRole: "customer",
+      },
+      isRead: false,
+      read: false,
+      createdAt: now,
+      updatedAt: now,
+      source: "cloud_function",
+    },
+    {merge: true}
+  );
+
+  return batch.commit();
 }
 
 async function workerIdsForCategory(categoryName) {
@@ -1976,9 +2164,31 @@ exports.notifyCustomerToReviewBooking = functions.firestore
         workerId,
         service,
       }));
+
+      tasks.push(unlockReferralRewardForCustomer({
+        customerId,
+        bookingId,
+      }));
     }
 
     return Promise.all(tasks);
+  });
+
+exports.trackReferralConversionOnUserUpdate = functions.firestore
+  .document("users/{uid}")
+  .onWrite(async (change, context) => {
+    const after = change.after.exists ? change.after.data() || {} : null;
+    if (!after) return null;
+
+    const before = change.before.exists ? change.before.data() || {} : {};
+    const beforeCode = normalizeReferralCode(before.referredByCode);
+    const afterCode = normalizeReferralCode(after.referredByCode);
+    if (!afterCode || beforeCode === afterCode) return null;
+
+    return createReferralConversionForUser(context.params.uid, {
+      ...after,
+      referredByCode: afterCode,
+    });
   });
 
 exports.sendPushOnNotificationCreate = functions.firestore

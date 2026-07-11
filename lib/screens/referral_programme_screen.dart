@@ -176,9 +176,11 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                     final completed = docs
                         .where((doc) => doc.data()['status'] == 'completed')
                         .length;
-                    final pending = docs
-                        .where((doc) => doc.data()['status'] == 'pending')
-                        .length;
+                    final pending = docs.where((doc) {
+                      final status = doc.data()['status']?.toString() ?? '';
+                      return status == 'pending' ||
+                          status == 'pending_first_paid_booking';
+                    }).length;
                     final earned = docs.fold<num>(0, (total, doc) {
                       final data = doc.data();
                       final reward = data['rewardAmount'];
@@ -512,7 +514,13 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
         : status == 'rejected'
         ? WorkableDesign.danger
         : WorkableDesign.warning;
-    final name = data['friendName']?.toString() ?? 'Friend';
+    final label = status == 'pending_first_paid_booking'
+        ? 'first booking pending'
+        : status.replaceAll('_', ' ');
+    final name =
+        data['friendName']?.toString() ??
+        data['referredUserName']?.toString() ??
+        'Friend';
     final reward = data['rewardAmount'] is num
         ? 'Rs ${(data['rewardAmount'] as num).round()}'
         : 'Pending';
@@ -544,7 +552,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
               ],
             ),
           ),
-          WorkableStatusPill(label: status, color: color),
+          WorkableStatusPill(label: label, color: color),
         ],
       ),
     );

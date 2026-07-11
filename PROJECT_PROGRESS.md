@@ -310,6 +310,18 @@ Smart Booking and AI tests:
   - each share action should create a `referralShareEvents` document with owner, code, channel, link, and timestamps
   - user document should update `referralShareCount`, `lastReferralShareAt`, and `lastReferralShareChannel`
   - normal users should not read or create another user's referral share events
+- Referral conversion/reward audit foundation:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - customer signup should accept an optional referral code
+  - email signup and Google signup should save `referredByCode` when provided
+  - backend should resolve `referredByCode` to the real referrer user
+  - backend should create `referrals/referred_{newUserId}` with referrer id, referred user id, code, status, and reward fields
+  - invalid code should mark the new user's referral status as `invalid_code`
+  - self referral should be blocked
+  - changing referral code after referral audit exists should not change the original referrer
+  - referrer should get a notification when a referred user joins
+  - when referred customer completes first paid booking, referral should move to `completed`
+  - reward should become `ready_for_credit` for admin/future promotion review
 
 ## Production Readiness Plan
 
@@ -601,6 +613,11 @@ Growth and marketplace innovation:
   - real invite links for customers and workers
   - share app, share job demand, share worker profile, share referral code
   - reward logic can be added after payment/trust systems stabilize
+  - current foundation:
+    - signup captures optional referral code
+    - backend creates immutable referral audit record
+    - backend unlocks reward after first paid booking
+    - reward is marked ready for credit/review instead of blindly paying immediately
 - WhatsApp Review And Relationship Messaging:
   - after a booking is completed, send the customer a WhatsApp review request with a deep link to the exact worker review page
   - link should open the app directly to the booking/worker review screen when installed, or to an install/web fallback later

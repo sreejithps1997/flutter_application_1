@@ -27,6 +27,7 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _addressController = TextEditingController();
+  final _referralCodeController = TextEditingController();
 
   final AuthService _authService = AuthService();
   Position? _currentPosition;
@@ -42,6 +43,14 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   bool _isOtpSending = false;
   bool _isVerifyingOtp = false;
   bool _isPhoneVerified = false;
+
+  String? get _cleanReferralCode {
+    final clean = _referralCodeController.text
+        .trim()
+        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+        .toUpperCase();
+    return clean.isEmpty ? null : clean;
+  }
 
   @override
   void initState() {
@@ -257,6 +266,9 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
 
           'phoneNumber': '+91${_phoneController.text.trim()}',
           'phoneVerified': true,
+          if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
+          if (_cleanReferralCode != null)
+            'referralStatus': 'pending_backend_check',
         });
 
         // SAVE PHONE VERIFICATION DETAILS
@@ -321,6 +333,9 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
           //'phone': _phoneController.text.trim(), // ✅ NEW
           'phoneNumber': '+91${_phoneController.text.trim()}',
           'phoneVerified': true,
+          if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
+          if (_cleanReferralCode != null)
+            'referralStatus': 'pending_backend_check',
         });
       }
 
@@ -359,6 +374,7 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _addressController.dispose();
+    _referralCodeController.dispose();
     super.dispose();
   }
 
@@ -584,6 +600,33 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
                         value != null && value.trim().isNotEmpty
                         ? null
                         : 'Please enter your address',
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextFormField(
+                    controller: _referralCodeController,
+                    textCapitalization: TextCapitalization.characters,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: "Referral code (optional)",
+                      prefixIcon: Icon(Icons.card_giftcard),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      final clean =
+                          value?.trim().replaceAll(
+                            RegExp(r'[^a-zA-Z0-9]'),
+                            '',
+                          ) ??
+                          '';
+                      if (clean.isEmpty) return null;
+                      if (clean.length < 4) {
+                        return 'Enter a valid referral code';
+                      }
+                      return null;
+                    },
                   ),
                 ],
               ),
