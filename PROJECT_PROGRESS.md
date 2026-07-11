@@ -346,6 +346,17 @@ Smart Booking and AI tests:
   - reward audit should show rewards ready for admin credit and credited/paid history
   - referral history should list all referred people, role, reward amount, reward status, and current referral status
   - after future admin credit, reward should move out of ready-for-review totals and remain visible in history
+- Referral Community Impact growth layer:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - referral programme should show Community Impact section
+  - impact section should show workers added and customers helped
+  - badge should progress through:
+    - Start your help circle
+    - Community Builder
+    - Trusted Connector
+    - Local Growth Partner
+  - next milestone text should guide the user toward more referrals
+  - future reward campaigns can use impact badge level for bonus incentives
 
 ## Production Readiness Plan
 
@@ -642,6 +653,7 @@ Growth and marketplace innovation:
     - worker signup also captures optional referral code
     - referral invite links can prefill signup referral code for customer or worker
     - referral programme screen now acts as the user's audit dashboard for joined people and reward status
+    - Community Impact badge makes referral feel like building a trusted local help circle, not only earning money
     - backend creates immutable referral audit record
     - backend records whether the referred user is a customer or worker
     - backend unlocks reward after first paid booking

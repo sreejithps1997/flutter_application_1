@@ -196,6 +196,8 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                         const SizedBox(height: 16),
                         _buildStats(audit),
                         const SizedBox(height: 16),
+                        _buildCommunityImpact(audit),
+                        const SizedBox(height: 16),
                         _buildRewardSummary(audit),
                         const SizedBox(height: 16),
                         _buildPeopleSummary(audit),
@@ -315,6 +317,183 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildCommunityImpact(_ReferralAudit audit) {
+    final badge = _impactBadge(audit);
+    final nextTarget = _nextImpactTarget(audit);
+
+    return WorkableSectionCard(
+      color: const Color(0xFFF8FAFC),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: badge.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(badge.icon, color: badge.color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Community Impact',
+                      style: TextStyle(
+                        color: WorkableDesign.ink,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      badge.label,
+                      style: TextStyle(
+                        color: badge.color,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _impactMessage(audit),
+            style: const TextStyle(
+              color: WorkableDesign.muted,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _impactMetric(
+                  LucideIcons.hardHat,
+                  '${audit.workerJoined}',
+                  'Workers added',
+                  WorkableDesign.accent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _impactMetric(
+                  LucideIcons.userPlus,
+                  '${audit.customerJoined}',
+                  'Customers helped',
+                  WorkableDesign.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          WorkableInfoRow(icon: LucideIcons.target, text: nextTarget),
+        ],
+      ),
+    );
+  }
+
+  Widget _impactMetric(IconData icon, String value, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: WorkableDesign.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: WorkableDesign.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _ImpactBadge _impactBadge(_ReferralAudit audit) {
+    if (audit.totalJoined >= 25 || audit.workerJoined >= 10) {
+      return const _ImpactBadge(
+        label: 'Local Growth Partner',
+        icon: LucideIcons.trophy,
+        color: WorkableDesign.success,
+      );
+    }
+    if (audit.totalJoined >= 10 || audit.workerJoined >= 3) {
+      return const _ImpactBadge(
+        label: 'Trusted Connector',
+        icon: LucideIcons.badgeCheck,
+        color: WorkableDesign.primary,
+      );
+    }
+    if (audit.totalJoined >= 1) {
+      return const _ImpactBadge(
+        label: 'Community Builder',
+        icon: LucideIcons.users,
+        color: WorkableDesign.accent,
+      );
+    }
+    return const _ImpactBadge(
+      label: 'Start your help circle',
+      icon: LucideIcons.sparkles,
+      color: WorkableDesign.warning,
+    );
+  }
+
+  String _impactMessage(_ReferralAudit audit) {
+    if (audit.totalJoined == 0) {
+      return 'Invite people you trust. Every customer or worker who joins through you strengthens your local help circle.';
+    }
+    if (audit.workerJoined > 0) {
+      return 'You helped add ${audit.workerJoined} worker${audit.workerJoined == 1 ? '' : 's'} and ${audit.customerJoined} customer${audit.customerJoined == 1 ? '' : 's'} to Workable.';
+    }
+    return 'You helped ${audit.customerJoined} customer${audit.customerJoined == 1 ? '' : 's'} discover Workable. Add trusted workers next to make help faster nearby.';
+  }
+
+  String _nextImpactTarget(_ReferralAudit audit) {
+    if (audit.totalJoined >= 25 || audit.workerJoined >= 10) {
+      return 'Top tier reached. Future admin rewards can use this badge for special campaigns.';
+    }
+    if (audit.totalJoined >= 10 || audit.workerJoined >= 3) {
+      final remaining = (25 - audit.totalJoined).clamp(0, 25);
+      return 'Next badge: Local Growth Partner. Add $remaining more people or reach 10 workers.';
+    }
+    if (audit.totalJoined >= 1) {
+      final remaining = (10 - audit.totalJoined).clamp(0, 10);
+      return 'Next badge: Trusted Connector. Add $remaining more people or refer 3 workers.';
+    }
+    return 'First milestone: invite 1 customer or worker to become a Community Builder.';
   }
 
   Widget _buildRewardSummary(_ReferralAudit audit) {
@@ -803,4 +982,16 @@ class _ReferralAudit {
       paidAmount: paidAmount,
     );
   }
+}
+
+class _ImpactBadge {
+  const _ImpactBadge({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
 }
