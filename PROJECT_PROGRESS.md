@@ -277,6 +277,14 @@ Smart Booking and AI tests:
   - admin payment rejection should call `reviewPaymentRequest`
   - backend should return booking/help request to `payment_due` with `payment_rejected`
   - rejected payment notification should require customer action
+- Review reminder/deep-link foundation:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - when booking becomes completed/paid, backend should create customer review reminder notification
+  - notification should include `bookingId` and `workerId`
+  - tapping push/in-app notification should open the exact customer booking review screen
+  - submitting review should set booking `hasReview: true`
+  - completed bookings that already have `hasReview: true` should not create new review reminder notifications
+  - this is the foundation for later WhatsApp review link messages
 
 ## Production Readiness Plan
 

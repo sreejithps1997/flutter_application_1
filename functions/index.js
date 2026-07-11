@@ -1812,6 +1812,54 @@ exports.notifyOnVerificationReview = functions.firestore
     return null;
   });
 
+exports.notifyCustomerToReviewBooking = functions.firestore
+  .document("bookings/{bookingId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data() || {};
+    const after = change.after.data() || {};
+    const {bookingId} = context.params;
+
+    if (after.hasReview === true) return null;
+
+    const statusBefore = stringValue(before.status);
+    const statusAfter = stringValue(after.status);
+    const paymentBefore = stringValue(before.paymentStatus);
+    const paymentAfter = stringValue(after.paymentStatus);
+    const becameCompleted =
+      statusBefore !== "completed" && statusAfter === "completed";
+    const becamePaid = paymentBefore !== "paid" && paymentAfter === "paid";
+    if (!becameCompleted && !becamePaid) return null;
+
+    const customerId = stringValue(after.customerId);
+    const workerId = stringValue(after.workerId);
+    if (!customerId || !workerId) return null;
+
+    const workerName = stringValue(after.workerName, "your worker");
+    const service = textFrom(after, ["service", "serviceType", "issue"], "service");
+
+    return setUserNotification({
+      uid: customerId,
+      notificationId: notificationIdFor([
+        "review_request",
+        bookingId,
+        customerId,
+      ]),
+      title: "How was the service?",
+      message: `Please rate ${workerName} for ${service}. Your review helps other customers choose trusted help.`,
+      type: "review_request",
+      notificationCategory: "review",
+      status: "pending_review",
+      requiresAction: true,
+      metadata: {
+        bookingId,
+        workerId,
+        workerName,
+        service,
+        userRole: "customer",
+      },
+    });
+  });
+
 exports.sendPushOnNotificationCreate = functions.firestore
   .document("users/{uid}/notifications/{notificationId}")
   .onCreate(async (snap, context) => {
