@@ -256,6 +256,16 @@ Smart Booking and AI tests:
     - `suggestWorkerSignupSkill`
   - verify Firestore reads/writes still work for customer, worker, and admin accounts before enabling enforcement
   - only enforce App Check after debug/release devices and backend flows are confirmed
+- Backend payout review consistency:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - admin payout approval should call `reviewPayoutRequest`
+  - backend should mark `payoutRequests/{id}.status` as `paid`
+  - backend should mark all linked bookings with `payoutStatus: paid`
+  - backend should create worker payout notification
+  - admin payout rejection should call `reviewPayoutRequest`
+  - backend should mark `payoutRequests/{id}.status` as `rejected`
+  - backend should clear linked bookings from active payout request state
+  - rejected payout notification should appear for worker and require attention
 
 ## Production Readiness Plan
 

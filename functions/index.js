@@ -476,6 +476,19 @@ function requireCleanText(value, fieldName, {min = 1, max = 120} = {}) {
   return text;
 }
 
+async function requireCallableAdmin(context) {
+  const uid = requireCallableAuth(context);
+  const userDoc = await db.collection("users").doc(uid).get();
+  const userType = stringValue(userDoc.data() && userDoc.data().userType);
+  if (userType !== "admin") {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      "Only admins can perform this action."
+    );
+  }
+  return uid;
+}
+
 function cacheTtlHours(diagnosis) {
   const urgency = stringValue(diagnosis && diagnosis.urgency);
   const confidence = stringValue(diagnosis && diagnosis.confidence);
@@ -1125,6 +1138,137 @@ exports.suggestWorkerSignupSkill = functions.https.onCall(
     }, {merge: true});
 
     return {skill};
+  }
+);
+
+exports.reviewPayoutRequest = functions.https.onCall(
+  async (data, context) => {
+    const adminId = await requireCallableAdmin(context);
+    const payoutRequestId = requireCleanText(
+      data && data.payoutRequestId,
+      "Payout request",
+      {min: 2, max: 140}
+    );
+    const decision = requireCleanText(data && data.decision, "Decision", {
+      min: 4,
+      max: 20,
+    });
+    const note = stringValue(data && data.note).trim().slice(0, 300);
+
+    if (!["approved", "rejected"].includes(decision)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Decision must be approved or rejected."
+      );
+    }
+
+    const requestRef = db.collection("payoutRequests").doc(payoutRequestId);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    let workerId = "";
+    let amount = 0;
+    let bookingIds = [];
+
+    await db.runTransaction(async (transaction) => {
+      const requestSnapshot = await transaction.get(requestRef);
+      if (!requestSnapshot.exists) {
+        throw new functions.https.HttpsError(
+          "not-found",
+          "Payout request not found."
+        );
+      }
+
+      const request = requestSnapshot.data() || {};
+      const currentStatus = stringValue(request.status, "pending");
+      if (currentStatus !== "pending") {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "This payout request has already been reviewed."
+        );
+      }
+
+      workerId = stringValue(request.workerId);
+      amount = Number(request.amount || 0);
+      bookingIds = Array.isArray(request.bookingIds)
+        ? request.bookingIds.map((id) => stringValue(id)).filter((id) => id)
+        : [];
+
+      if (!workerId || bookingIds.length === 0 || amount <= 0) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Payout request is missing worker, amount, or booking details."
+        );
+      }
+
+      if (decision === "approved") {
+        transaction.update(requestRef, {
+          status: "paid",
+          approvedBy: adminId,
+          approvedAt: now,
+          paidAt: now,
+          adminNote: note,
+          updatedAt: now,
+          reviewSource: "cloud_function",
+        });
+
+        bookingIds.forEach((bookingId) => {
+          transaction.update(db.collection("bookings").doc(bookingId), {
+            payoutStatus: "paid",
+            payoutPaidAt: now,
+            payoutReviewedBy: adminId,
+            payoutRequestId,
+            updatedAt: now,
+          });
+        });
+      } else {
+        transaction.update(requestRef, {
+          status: "rejected",
+          rejectedBy: adminId,
+          rejectedAt: now,
+          rejectionReason: note || "Payout request could not be approved.",
+          updatedAt: now,
+          reviewSource: "cloud_function",
+        });
+
+        bookingIds.forEach((bookingId) => {
+          transaction.update(db.collection("bookings").doc(bookingId), {
+            payoutStatus: "rejected",
+            payoutRequestId: admin.firestore.FieldValue.delete(),
+            payoutRejectedAt: now,
+            payoutReviewedBy: adminId,
+            updatedAt: now,
+          });
+        });
+      }
+    });
+
+    await setUserNotification({
+      uid: workerId,
+      notificationId: notificationIdFor([
+        "payout_review",
+        payoutRequestId,
+        decision,
+      ]),
+      title: decision === "approved" ? "Payout marked paid" : "Payout rejected",
+      message: decision === "approved"
+        ? `Your payout of Rs ${amount} was marked as paid.`
+        : `Your payout request was rejected${note ? `: ${note}` : "."}`,
+      type: "payout_update",
+      notificationCategory: "payout",
+      status: decision === "approved" ? "paid" : "rejected",
+      requiresAction: decision === "rejected",
+      metadata: {
+        payoutRequestId,
+        workerId,
+        amount: String(amount),
+        userRole: "worker",
+      },
+    });
+
+    return {
+      status: decision === "approved" ? "paid" : "rejected",
+      payoutRequestId,
+      bookingCount: bookingIds.length,
+    };
   }
 );
 

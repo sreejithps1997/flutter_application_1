@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -16,6 +16,7 @@ class AdminPayoutReviewScreen extends StatefulWidget {
 
 class _AdminPayoutReviewScreenState extends State<AdminPayoutReviewScreen> {
   final _currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs ');
+  final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   bool _busy = false;
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _requests() {
@@ -26,30 +27,13 @@ class _AdminPayoutReviewScreenState extends State<AdminPayoutReviewScreen> {
   }
 
   Future<void> _approve(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
-    final adminId = FirebaseAuth.instance.currentUser?.uid ?? 'admin';
-    final data = doc.data();
-    final bookingIds = (data['bookingIds'] as List?)?.cast<String>() ?? [];
-    final now = FieldValue.serverTimestamp();
-
     setState(() => _busy = true);
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      batch.update(doc.reference, {
-        'status': 'paid',
-        'approvedBy': adminId,
-        'approvedAt': now,
-        'paidAt': now,
-        'updatedAt': now,
+      await _functions.httpsCallable('reviewPayoutRequest').call({
+        'payoutRequestId': doc.id,
+        'decision': 'approved',
+        'note': 'Admin marked payout as paid.',
       });
-
-      for (final bookingId in bookingIds) {
-        batch.update(
-          FirebaseFirestore.instance.collection('bookings').doc(bookingId),
-          {'payoutStatus': 'paid', 'payoutPaidAt': now, 'updatedAt': now},
-        );
-      }
-
-      await batch.commit();
       if (!mounted) return;
       _showSnack('Payout marked as paid.');
     } catch (_) {
@@ -61,33 +45,46 @@ class _AdminPayoutReviewScreenState extends State<AdminPayoutReviewScreen> {
   }
 
   Future<void> _reject(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
-    final adminId = FirebaseAuth.instance.currentUser?.uid ?? 'admin';
-    final data = doc.data();
-    final bookingIds = (data['bookingIds'] as List?)?.cast<String>() ?? [];
-    final now = FieldValue.serverTimestamp();
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject payout?'),
+        content: TextField(
+          controller: reasonController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Reason shown to worker',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              reasonController.text.trim().isEmpty
+                  ? 'Payout request could not be approved.'
+                  : reasonController.text.trim(),
+            ),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (reason == null) return;
 
     setState(() => _busy = true);
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      batch.update(doc.reference, {
-        'status': 'rejected',
-        'rejectedBy': adminId,
-        'rejectedAt': now,
-        'updatedAt': now,
+      await _functions.httpsCallable('reviewPayoutRequest').call({
+        'payoutRequestId': doc.id,
+        'decision': 'rejected',
+        'note': reason,
       });
-
-      for (final bookingId in bookingIds) {
-        batch.update(
-          FirebaseFirestore.instance.collection('bookings').doc(bookingId),
-          {
-            'payoutStatus': 'rejected',
-            'payoutRequestId': null,
-            'updatedAt': now,
-          },
-        );
-      }
-
-      await batch.commit();
       if (!mounted) return;
       _showSnack('Payout rejected.');
     } catch (_) {
