@@ -416,6 +416,12 @@ class _WorkerAccountScreenState
         onTap: () => _navigateToOpportunities(),
       ),
       buildMenuItem(
+        Icons.card_giftcard_outlined,
+        "Referral Programme",
+        "People joined through you",
+        onTap: () => _navigateToReferralProgram(),
+      ),
+      buildMenuItem(
         Icons.rate_review,
         "Reviews & Ratings",
         "$totalReviews reviews received",
@@ -585,6 +591,10 @@ class _WorkerAccountScreenState
 
   void _navigateToOpportunities() {
     Navigator.pushNamed(context, '/worker/opportunities');
+  }
+
+  void _navigateToReferralProgram() {
+    Navigator.pushNamed(context, '/referral-programme');
   }
 
   void _navigateToVerificationStatus() {

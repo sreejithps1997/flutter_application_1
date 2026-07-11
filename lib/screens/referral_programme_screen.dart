@@ -33,6 +33,12 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
     return '${clean.substring(0, clean.length.clamp(0, 6))}${user.uid.substring(0, 4).toUpperCase()}';
   }
 
+  _ReferralAudit _auditFrom(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return _ReferralAudit.fromDocs(docs);
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> _referralsStream(String uid) {
     return FirebaseFirestore.instance
         .collection('referrals')
@@ -174,23 +180,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                   stream: _referralsStream(user.uid),
                   builder: (context, referralSnapshot) {
                     final docs = referralSnapshot.data?.docs ?? [];
-                    final completed = docs
-                        .where((doc) => doc.data()['status'] == 'completed')
-                        .length;
-                    final pending = docs.where((doc) {
-                      final status = doc.data()['status']?.toString() ?? '';
-                      return status == 'pending' ||
-                          status == 'pending_first_paid_booking' ||
-                          status == 'pending_worker_onboarding';
-                    }).length;
-                    final earned = docs.fold<num>(0, (total, doc) {
-                      final data = doc.data();
-                      final reward = data['rewardAmount'];
-                      if (data['status'] == 'completed' && reward is num) {
-                        return total + reward;
-                      }
-                      return total;
-                    });
+                    final audit = _auditFrom(docs);
 
                     return ListView(
                       padding: const EdgeInsets.all(WorkableDesign.pagePadding),
@@ -204,13 +194,17 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                         const SizedBox(height: 16),
                         _buildCodeCard(code),
                         const SizedBox(height: 16),
-                        _buildStats(completed, pending, earned),
+                        _buildStats(audit),
+                        const SizedBox(height: 16),
+                        _buildRewardSummary(audit),
+                        const SizedBox(height: 16),
+                        _buildPeopleSummary(audit),
                         const SizedBox(height: 16),
                         _buildHowItWorks(),
                         const SizedBox(height: 16),
                         _buildShareCard(code),
                         const SizedBox(height: 16),
-                        _buildHistory(docs),
+                        _buildHistory(audit),
                         const SizedBox(height: 16),
                         _buildTermsNote(),
                       ],
@@ -262,35 +256,42 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
     );
   }
 
-  Widget _buildStats(int completed, int pending, num earned) {
-    return Row(
+  Widget _buildStats(_ReferralAudit audit) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
       children: [
         _statCard(
-          LucideIcons.checkCircle,
-          completed.toString(),
-          'Completed',
+          LucideIcons.users,
+          '${audit.totalJoined}',
+          'Total joined',
+          WorkableDesign.primary,
+        ),
+        _statCard(
+          LucideIcons.user,
+          '${audit.customerJoined}',
+          'Customers',
           WorkableDesign.success,
         ),
-        const SizedBox(width: 10),
+        _statCard(
+          LucideIcons.hardHat,
+          '${audit.workerJoined}',
+          'Workers',
+          WorkableDesign.accent,
+        ),
         _statCard(
           LucideIcons.clock,
-          pending.toString(),
+          '${audit.pending}',
           'Pending',
           WorkableDesign.warning,
-        ),
-        const SizedBox(width: 10),
-        _statCard(
-          LucideIcons.wallet,
-          'Rs ${earned.round()}',
-          'Earned',
-          WorkableDesign.primary,
         ),
       ],
     );
   }
 
   Widget _statCard(IconData icon, String value, String label, Color color) {
-    return Expanded(
+    return SizedBox(
+      width: (MediaQuery.sizeOf(context).width - 52) / 2,
       child: WorkableSectionCard(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -312,6 +313,130 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildRewardSummary(_ReferralAudit audit) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Reward audit',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _rewardMetric(
+                  'Ready for review',
+                  'Rs ${audit.readyAmount.round()}',
+                  WorkableDesign.warning,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _rewardMetric(
+                  'Credited history',
+                  'Rs ${audit.paidAmount.round()}',
+                  WorkableDesign.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          WorkableInfoRow(
+            icon: LucideIcons.shieldCheck,
+            text:
+                '${audit.readyCount} reward${audit.readyCount == 1 ? '' : 's'} waiting for admin credit. Credited rewards stay in history so you can audit them later.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rewardMetric(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: WorkableDesign.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPeopleSummary(_ReferralAudit audit) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'People joined through you',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _smallCountRow('Customers joined', audit.customerJoined),
+          _smallCountRow('Workers joined', audit.workerJoined),
+          _smallCountRow('Rewards waiting', audit.readyCount),
+          _smallCountRow('Rewards credited', audit.paidCount),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallCountRow(String label, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: WorkableDesign.muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            count.toString(),
+            style: const TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -474,8 +599,8 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
     );
   }
 
-  Widget _buildHistory(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    if (docs.isEmpty) {
+  Widget _buildHistory(_ReferralAudit audit) {
+    if (audit.docs.isEmpty) {
       return const WorkableEmptyState(
         icon: LucideIcons.users,
         title: 'No referrals yet',
@@ -484,7 +609,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
       );
     }
 
-    final sorted = docs.toList()
+    final sorted = audit.docs.toList()
       ..sort((a, b) {
         final ad = _dateFrom(a.data()['createdAt']);
         final bd = _dateFrom(b.data()['createdAt']);
@@ -496,14 +621,14 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Recent referrals',
+            'Referral history',
             style: TextStyle(
               color: WorkableDesign.ink,
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 12),
-          ...sorted.take(5).map((doc) => _historyItem(doc.data())),
+          ...sorted.map((doc) => _historyItem(doc.data())),
         ],
       ),
     );
@@ -528,13 +653,19 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
     final reward = data['rewardAmount'] is num
         ? 'Rs ${(data['rewardAmount'] as num).round()}'
         : 'Pending';
+    final rewardStatus = data['rewardStatus']?.toString() ?? 'locked';
+    final role = data['referredUserRole']?.toString() ?? 'customer';
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: WorkableDesign.primary.withValues(alpha: 0.1),
+            backgroundColor:
+                (role == 'worker'
+                        ? WorkableDesign.accent
+                        : WorkableDesign.primary)
+                    .withValues(alpha: 0.1),
             child: Text(
               _initials(name),
               style: const TextStyle(
@@ -550,7 +681,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
               children: [
                 Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
                 Text(
-                  reward,
+                  '$role - $reward - ${rewardStatus.replaceAll('_', ' ')}',
                   style: const TextStyle(color: WorkableDesign.muted),
                 ),
               ],
@@ -588,6 +719,88 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
   void _showSnack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+}
+
+class _ReferralAudit {
+  const _ReferralAudit({
+    required this.docs,
+    required this.totalJoined,
+    required this.customerJoined,
+    required this.workerJoined,
+    required this.pending,
+    required this.readyCount,
+    required this.readyAmount,
+    required this.paidCount,
+    required this.paidAmount,
+  });
+
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+  final int totalJoined;
+  final int customerJoined;
+  final int workerJoined;
+  final int pending;
+  final int readyCount;
+  final num readyAmount;
+  final int paidCount;
+  final num paidAmount;
+
+  factory _ReferralAudit.fromDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    var customerJoined = 0;
+    var workerJoined = 0;
+    var pending = 0;
+    var readyCount = 0;
+    num readyAmount = 0;
+    var paidCount = 0;
+    num paidAmount = 0;
+
+    for (final doc in docs) {
+      final data = doc.data();
+      final role = data['referredUserRole']?.toString() ?? 'customer';
+      final status = data['status']?.toString() ?? '';
+      final rewardStatus = data['rewardStatus']?.toString() ?? 'locked';
+      final reward = data['rewardAmount'] is num
+          ? data['rewardAmount'] as num
+          : 0;
+
+      if (role == 'worker') {
+        workerJoined++;
+      } else {
+        customerJoined++;
+      }
+
+      if (status == 'pending' ||
+          status == 'pending_first_paid_booking' ||
+          status == 'pending_worker_onboarding') {
+        pending++;
+      }
+
+      if (rewardStatus == 'ready_for_credit') {
+        readyCount++;
+        readyAmount += reward;
+      }
+
+      if (rewardStatus == 'credited' ||
+          rewardStatus == 'paid' ||
+          rewardStatus == 'reward_paid') {
+        paidCount++;
+        paidAmount += reward;
+      }
+    }
+
+    return _ReferralAudit(
+      docs: docs,
+      totalJoined: docs.length,
+      customerJoined: customerJoined,
+      workerJoined: workerJoined,
+      pending: pending,
+      readyCount: readyCount,
+      readyAmount: readyAmount,
+      paidCount: paidCount,
+      paidAmount: paidAmount,
     );
   }
 }

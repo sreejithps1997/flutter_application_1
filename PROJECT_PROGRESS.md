@@ -336,6 +336,16 @@ Smart Booking and AI tests:
   - successful signup should consume the pending referral code so it is not reused accidentally
   - Android should accept `https://workable.app/invite?ref={code}` and `workable://invite?ref={code}` link intents
   - before production, host Android App Links `assetlinks.json` on `workable.app` so HTTPS links open the app directly without chooser/browser
+- User referral audit dashboard:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - referral programme screen should be usable by both customer and worker accounts
+  - worker account should link to Referral Programme
+  - screen should show total people joined through the user's referral code
+  - screen should split joined people into customers and workers
+  - screen should show pending referrals separately from completed referrals
+  - reward audit should show rewards ready for admin credit and credited/paid history
+  - referral history should list all referred people, role, reward amount, reward status, and current referral status
+  - after future admin credit, reward should move out of ready-for-review totals and remain visible in history
 
 ## Production Readiness Plan
 
@@ -631,6 +641,7 @@ Growth and marketplace innovation:
     - signup captures optional referral code
     - worker signup also captures optional referral code
     - referral invite links can prefill signup referral code for customer or worker
+    - referral programme screen now acts as the user's audit dashboard for joined people and reward status
     - backend creates immutable referral audit record
     - backend records whether the referred user is a customer or worker
     - backend unlocks reward after first paid booking
