@@ -1272,6 +1272,131 @@ exports.reviewPayoutRequest = functions.https.onCall(
   }
 );
 
+exports.reviewPaymentRequest = functions.https.onCall(
+  async (data, context) => {
+    const adminId = await requireCallableAdmin(context);
+    const bookingId = requireCleanText(data && data.bookingId, "Booking", {
+      min: 2,
+      max: 140,
+    });
+    const decision = requireCleanText(data && data.decision, "Decision", {
+      min: 4,
+      max: 20,
+    });
+    const note = stringValue(data && data.note).trim().slice(0, 300);
+
+    if (!["approved", "rejected"].includes(decision)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Decision must be approved or rejected."
+      );
+    }
+
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    let helpRequestId = "";
+
+    await db.runTransaction(async (transaction) => {
+      const bookingSnapshot = await transaction.get(bookingRef);
+      if (!bookingSnapshot.exists) {
+        throw new functions.https.HttpsError("not-found", "Booking not found.");
+      }
+
+      const booking = bookingSnapshot.data() || {};
+      const paymentStatus = stringValue(booking.paymentStatus);
+      const status = stringValue(booking.status);
+      const reviewable = status === "payment_under_review" ||
+        paymentStatus === "customer_reported_paid" ||
+        paymentStatus === "cash_pending_confirmation" ||
+        paymentStatus === "payment_under_review";
+
+      if (!reviewable) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "This booking is not waiting for payment review."
+        );
+      }
+
+      helpRequestId = stringValue(booking.sourceHelpRequestId);
+      if (decision === "approved") {
+        const approvedData = {
+          status: "completed",
+          paymentStatus: "paid",
+          paymentReviewStatus: "approved",
+          paymentReviewedBy: adminId,
+          paymentReviewerRole: "admin",
+          paymentReviewNote: note || "Admin approved payment review.",
+          paidAt: now,
+          completedAt: now,
+          "timeline.paid": now,
+          "timeline.completed": now,
+          updatedAt: now,
+          paymentReviewSource: "cloud_function",
+        };
+
+        transaction.update(bookingRef, approvedData);
+        if (helpRequestId) {
+          transaction.update(db.collection("helpRequests").doc(helpRequestId), {
+            ...approvedData,
+          });
+        }
+      } else {
+        const reason = note || "Payment could not be verified.";
+        const rejectedData = {
+          status: "payment_due",
+          paymentStatus: "payment_rejected",
+          paymentReviewStatus: "rejected",
+          paymentReviewedBy: adminId,
+          paymentReviewerRole: "admin",
+          paymentRejectionReason: reason,
+          paymentRejectedAt: now,
+          updatedAt: now,
+          paymentReviewSource: "cloud_function",
+        };
+
+        transaction.update(bookingRef, rejectedData);
+        if (helpRequestId) {
+          transaction.update(db.collection("helpRequests").doc(helpRequestId), {
+            ...rejectedData,
+          });
+        }
+      }
+    });
+
+    const transactionSnapshot = await db
+      .collection("transactions")
+      .where("bookingId", "==", bookingId)
+      .get();
+    if (!transactionSnapshot.empty) {
+      const batch = db.batch();
+      transactionSnapshot.docs.forEach((doc) => {
+        const transactionUpdate = {
+          status: decision === "approved" ? "paid" : "payment_rejected",
+          paymentReviewStatus: decision,
+          paymentReviewedBy: adminId,
+          paymentReviewerRole: "admin",
+          updatedAt: now,
+        };
+        if (decision === "approved") {
+          transactionUpdate.paymentReviewNote = note;
+          transactionUpdate.paidAt = now;
+        } else {
+          transactionUpdate.paymentRejectionReason =
+            note || "Payment could not be verified.";
+        }
+        batch.update(doc.ref, transactionUpdate);
+      });
+      await batch.commit();
+    }
+
+    return {
+      status: decision === "approved" ? "paid" : "payment_rejected",
+      bookingId,
+      helpRequestId,
+    };
+  }
+);
+
 exports.notifyOnHelpRequestAccepted = functions.firestore
   .document("helpRequests/{requestId}")
   .onUpdate(async (change, context) => {

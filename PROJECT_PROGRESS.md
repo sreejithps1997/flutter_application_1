@@ -266,6 +266,17 @@ Smart Booking and AI tests:
   - backend should mark `payoutRequests/{id}.status` as `rejected`
   - backend should clear linked bookings from active payout request state
   - rejected payout notification should appear for worker and require attention
+- Backend payment review consistency:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - admin payment approval should call `reviewPaymentRequest`
+  - backend should verify caller is admin
+  - backend should mark booking payment as `paid` and booking status as `completed`
+  - backend should update linked Help Request when booking came from a Help Request
+  - backend should update matching transaction records
+  - backend booking-update trigger should create customer/worker payment notifications when applicable
+  - admin payment rejection should call `reviewPaymentRequest`
+  - backend should return booking/help request to `payment_due` with `payment_rejected`
+  - rejected payment notification should require customer action
 
 ## Production Readiness Plan
 

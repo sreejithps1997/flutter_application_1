@@ -1,10 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-
-import '../../services/payment_reconciliation_service.dart';
 
 class AdminPaymentReviewScreen extends StatefulWidget {
   static const routeName = '/admin-payment-review';
@@ -19,7 +17,7 @@ class AdminPaymentReviewScreen extends StatefulWidget {
 class _AdminPaymentReviewScreenState extends State<AdminPaymentReviewScreen> {
   final _currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
   final _dateFormat = DateFormat('dd MMM yyyy, h:mm a');
-  final _service = PaymentReconciliationService();
+  final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   bool _busy = false;
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _pendingPayments() {
@@ -30,15 +28,13 @@ class _AdminPaymentReviewScreenState extends State<AdminPaymentReviewScreen> {
   }
 
   Future<void> _approve(String bookingId) async {
-    final adminId = FirebaseAuth.instance.currentUser?.uid ?? 'admin';
     setState(() => _busy = true);
     try {
-      await _service.approvePayment(
-        bookingId: bookingId,
-        reviewedBy: adminId,
-        reviewerRole: 'admin',
-        note: 'Admin approved payment review.',
-      );
+      await _functions.httpsCallable('reviewPaymentRequest').call({
+        'bookingId': bookingId,
+        'decision': 'approved',
+        'note': 'Admin approved payment review.',
+      });
       if (!mounted) return;
       _showSnack('Payment approved and booking completed.');
     } catch (_) {
@@ -83,15 +79,13 @@ class _AdminPaymentReviewScreenState extends State<AdminPaymentReviewScreen> {
     reasonController.dispose();
     if (reason == null) return;
 
-    final adminId = FirebaseAuth.instance.currentUser?.uid ?? 'admin';
     setState(() => _busy = true);
     try {
-      await _service.rejectPayment(
-        bookingId: bookingId,
-        reviewedBy: adminId,
-        reviewerRole: 'admin',
-        reason: reason,
-      );
+      await _functions.httpsCallable('reviewPaymentRequest').call({
+        'bookingId': bookingId,
+        'decision': 'rejected',
+        'note': reason,
+      });
       if (!mounted) return;
       _showSnack('Payment rejected and returned to payment due.');
     } catch (_) {
