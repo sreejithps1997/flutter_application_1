@@ -8,6 +8,7 @@ import 'package:workable/screens/customer_dashboard_screen.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/form_section.dart';
 import '../services/auth_service.dart';
+import '../services/referral_link_service.dart';
 import 'package:geocoding/geocoding.dart';
 
 class CustomerSignupScreen extends StatefulWidget {
@@ -56,6 +57,15 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   void initState() {
     super.initState();
     _fetchLocation();
+    _prefillReferralCode();
+  }
+
+  Future<void> _prefillReferralCode() async {
+    final code = await ReferralLinkService.loadPendingReferralCode();
+    if (!mounted || code == null || _referralCodeController.text.isNotEmpty) {
+      return;
+    }
+    setState(() => _referralCodeController.text = code);
   }
 
   Future<void> _fetchLocation() async {
@@ -283,6 +293,10 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
               'verifiedAt': Timestamp.now(),
               'verificationMethod': 'signup_otp',
             });
+
+        if (_cleanReferralCode != null) {
+          await ReferralLinkService.consumePendingReferralCode();
+        }
       }
 
       if (mounted) {
@@ -337,6 +351,9 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
           if (_cleanReferralCode != null)
             'referralStatus': 'pending_backend_check',
         });
+        if (_cleanReferralCode != null) {
+          await ReferralLinkService.consumePendingReferralCode();
+        }
       }
 
       if (mounted) {

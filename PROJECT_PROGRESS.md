@@ -326,6 +326,16 @@ Smart Booking and AI tests:
   - when referred customer completes first paid booking, referral should move to `completed`
   - reward should become `ready_for_credit` for admin/future promotion review
   - referred worker should remain `pending_worker_onboarding` until future admin/promotion policy decides when to unlock worker-acquisition rewards
+- Referral deep-link prefill foundation:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - referral share link should use `/invite?ref={code}`
+  - opening `/invite?ref={code}` should save the referral code locally
+  - invite landing screen should let the user continue as customer or worker
+  - customer signup should auto-fill the saved referral code
+  - worker signup should auto-fill the saved referral code
+  - successful signup should consume the pending referral code so it is not reused accidentally
+  - Android should accept `https://workable.app/invite?ref={code}` and `workable://invite?ref={code}` link intents
+  - before production, host Android App Links `assetlinks.json` on `workable.app` so HTTPS links open the app directly without chooser/browser
 
 ## Production Readiness Plan
 
@@ -620,6 +630,7 @@ Growth and marketplace innovation:
   - current foundation:
     - signup captures optional referral code
     - worker signup also captures optional referral code
+    - referral invite links can prefill signup referral code for customer or worker
     - backend creates immutable referral audit record
     - backend records whether the referred user is a customer or worker
     - backend unlocks reward after first paid booking

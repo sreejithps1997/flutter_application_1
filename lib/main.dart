@@ -85,6 +85,7 @@ import 'screens/transaction_history_screen.dart';
 import 'screens/app_settings_screen.dart';
 import 'screens/security_privacy_screen.dart';
 import 'screens/referral_programme_screen.dart';
+import 'screens/referral_invite_landing_screen.dart';
 import 'screens/become_worker_screen.dart';
 import 'screens/add_new_address_screen.dart';
 import 'screens/messages_screen.dart';
@@ -109,6 +110,7 @@ import 'services/user_type_service.dart';
 import 'services/app_preferences_service.dart';
 import 'services/notification_service.dart';
 import 'services/notification_navigation_service.dart';
+import 'services/referral_link_service.dart';
 import 'screens/repeat_booking_screen.dart';
 import 'screens/forgot_password_screen.dart';
 import 'screens/admin/admin_payout_review_screen.dart';
@@ -514,6 +516,17 @@ class WorkableApp extends StatelessWidget {
               },
 
               onGenerateRoute: (settings) {
+                final routeUri = Uri.tryParse(settings.name ?? '');
+                if (routeUri != null && routeUri.path == '/invite') {
+                  final code = ReferralLinkService.normalizeCode(
+                    routeUri.queryParameters['ref'],
+                  );
+                  return MaterialPageRoute(
+                    builder: (_) =>
+                        ReferralInviteLandingScreen(referralCode: code),
+                  );
+                }
+
                 switch (settings.name) {
                   case ChatScreen.routeName:
                     final args = settings.arguments as Map<String, dynamic>;

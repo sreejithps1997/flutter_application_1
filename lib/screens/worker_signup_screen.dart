@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/theme/workable_design.dart';
 import '../models/worker_onboarding_data.dart';
 import '../services/auth_service.dart';
+import '../services/referral_link_service.dart';
 import '../widgets/worker_onboarding_shell.dart';
 import 'worker_signup/step1_profile_screen.dart';
 
@@ -58,6 +59,20 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
     return testNumbers.contains(phone);
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _prefillReferralCode();
+  }
+
+  Future<void> _prefillReferralCode() async {
+    final code = await ReferralLinkService.loadPendingReferralCode();
+    if (!mounted || code == null || _referralCodeController.text.isNotEmpty) {
+      return;
+    }
+    setState(() => _referralCodeController.text = code);
+  }
+
   Future<void> _submitSignup() async {
     if (_isLoading) return;
     if (!_formKey.currentState!.validate()) {
@@ -102,6 +117,9 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
         if (_cleanReferralCode != null)
           'referralStatus': 'pending_backend_check',
       }, SetOptions(merge: true));
+      if (_cleanReferralCode != null) {
+        await ReferralLinkService.consumePendingReferralCode();
+      }
 
       final userDoc = await FirebaseFirestore.instance
           .collection('users')

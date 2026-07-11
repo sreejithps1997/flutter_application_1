@@ -6,6 +6,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/workable_design.dart';
+import '../services/referral_link_service.dart';
 import '../widgets/workable_ui.dart';
 
 class ReferralProgrammeScreen extends StatefulWidget {
@@ -72,7 +73,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
   }
 
   String _inviteLink(String code) {
-    return 'https://workable.app/invite?ref=${Uri.encodeComponent(code)}';
+    return ReferralLinkService.inviteLink(code);
   }
 
   Future<void> _copyReferralCode(String code) async {
