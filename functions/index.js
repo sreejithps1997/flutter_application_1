@@ -93,6 +93,8 @@ async function sendPushToUser(uid, notification, notificationId) {
     userRole: stringValue(metadata.userRole),
     reviewId: stringValue(metadata.reviewId),
     workerId: stringValue(metadata.workerId),
+    couponId: stringValue(metadata.couponId),
+    couponCode: stringValue(metadata.couponCode),
   };
 
   const results = await Promise.all(
@@ -236,6 +238,73 @@ async function setUserNotification({
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       source: "cloud_function",
     }, {merge: true});
+}
+
+async function createRepeatServiceCoupon({
+  bookingId,
+  booking,
+  customerId,
+  workerId,
+  service,
+}) {
+  if (!bookingId || !customerId) return null;
+
+  const couponId = notificationIdFor(["repeat_coupon", bookingId, customerId]);
+  const couponRef = db
+    .collection("users")
+    .doc(customerId)
+    .collection("coupons")
+    .doc(couponId);
+  const existing = await couponRef.get();
+  if (existing.exists) return null;
+
+  const now = new Date();
+  const validUntil = new Date(now.getTime());
+  validUntil.setMonth(validUntil.getMonth() + 2);
+  const codeSeed = bookingId.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase();
+  const code = `WORKABLE${codeSeed || "NEXT10"}`;
+  const city = textFrom(booking, ["city", "serviceCity", "customerCity"], "");
+
+  await couponRef.set({
+    source: "booking_completion",
+    bookingId,
+    customerId,
+    workerId,
+    service,
+    city,
+    code,
+    discountType: "percent",
+    discountValue: 10,
+    maxDiscount: 100,
+    currency: "INR",
+    status: "active",
+    validFrom: admin.firestore.Timestamp.fromDate(now),
+    validUntil: admin.firestore.Timestamp.fromDate(validUntil),
+    usageLimit: 1,
+    usedCount: 0,
+    shareable: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return setUserNotification({
+    uid: customerId,
+    notificationId: notificationIdFor(["coupon_reward", bookingId, customerId]),
+    title: "A thank-you coupon is ready",
+    message: `Use ${code} within 2 months for 10% off your next Workable service.`,
+    type: "coupon_reward",
+    notificationCategory: "coupon",
+    status: "coupon_ready",
+    requiresAction: false,
+    metadata: {
+      bookingId,
+      workerId,
+      service,
+      couponId,
+      couponCode: code,
+      userRole: "customer",
+    },
+  });
 }
 
 async function workerIdsForCategory(categoryName) {
@@ -1819,8 +1888,6 @@ exports.notifyCustomerToReviewBooking = functions.firestore
     const after = change.after.data() || {};
     const {bookingId} = context.params;
 
-    if (after.hasReview === true) return null;
-
     const statusBefore = stringValue(before.status);
     const statusAfter = stringValue(after.status);
     const paymentBefore = stringValue(before.paymentStatus);
@@ -1836,28 +1903,43 @@ exports.notifyCustomerToReviewBooking = functions.firestore
 
     const workerName = stringValue(after.workerName, "your worker");
     const service = textFrom(after, ["service", "serviceType", "issue"], "service");
+    const tasks = [];
 
-    return setUserNotification({
-      uid: customerId,
-      notificationId: notificationIdFor([
-        "review_request",
+    if (after.hasReview !== true) {
+      tasks.push(setUserNotification({
+        uid: customerId,
+        notificationId: notificationIdFor([
+          "review_request",
+          bookingId,
+          customerId,
+        ]),
+        title: "How was the service?",
+        message: `Please rate ${workerName} for ${service}. Your review helps other customers choose trusted help.`,
+        type: "review_request",
+        notificationCategory: "review",
+        status: "pending_review",
+        requiresAction: true,
+        metadata: {
+          bookingId,
+          workerId,
+          workerName,
+          service,
+          userRole: "customer",
+        },
+      }));
+    }
+
+    if (paymentAfter === "paid") {
+      tasks.push(createRepeatServiceCoupon({
         bookingId,
+        booking: after,
         customerId,
-      ]),
-      title: "How was the service?",
-      message: `Please rate ${workerName} for ${service}. Your review helps other customers choose trusted help.`,
-      type: "review_request",
-      notificationCategory: "review",
-      status: "pending_review",
-      requiresAction: true,
-      metadata: {
-        bookingId,
         workerId,
-        workerName,
         service,
-        userRole: "customer",
-      },
-    });
+      }));
+    }
+
+    return Promise.all(tasks);
   });
 
 exports.sendPushOnNotificationCreate = functions.firestore

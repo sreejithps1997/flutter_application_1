@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
@@ -27,6 +28,14 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
     return FirebaseFirestore.instance
         .collection('transactions')
         .where('customerId', isEqualTo: uid)
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _couponStream(String uid) {
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('coupons')
         .snapshots();
   }
 
@@ -104,6 +113,26 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
     });
   }
 
+  DateTime _couponExpiry(Map<String, dynamic> data) {
+    final timestamp = data['validUntil'];
+    if (timestamp is Timestamp) return timestamp.toDate();
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  bool _isActiveCoupon(Map<String, dynamic> data) {
+    final status = data['status']?.toString() ?? 'active';
+    final expiry = _couponExpiry(data);
+    final usageLimit = (data['usageLimit'] is num)
+        ? (data['usageLimit'] as num).toInt()
+        : 1;
+    final usedCount = (data['usedCount'] is num)
+        ? (data['usedCount'] as num).toInt()
+        : 0;
+    return status == 'active' &&
+        expiry.isAfter(DateTime.now()) &&
+        usedCount < usageLimit;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -145,31 +174,48 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
                     )
                     .toList();
 
-                return ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    const WorkablePageHeader(
-                      title: 'Wallet and credits',
-                      subtitle:
-                          'Track refunds, cashback, wallet usage, and monthly spending in one place.',
-                      icon: LucideIcons.wallet,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildBalanceCard(balance, earned),
-                    const SizedBox(height: 24),
-                    _buildQuickActions(),
-                    const SizedBox(height: 24),
-                    _buildCreditsSummary(walletDocs),
-                    const SizedBox(height: 24),
-                    _buildTabs(),
-                    const SizedBox(height: 16),
-                    if (activeTab == 'wallet')
-                      _buildWalletTransactions(walletDocs)
-                    else
-                      _buildAnalytics(spent, earned, docs),
-                    const SizedBox(height: 24),
-                    _buildSecurityInfo(),
-                  ],
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _couponStream(user.uid),
+                  builder: (context, couponSnapshot) {
+                    final couponDocs = couponSnapshot.data?.docs.toList() ?? [];
+                    couponDocs.sort(
+                      (a, b) => _couponExpiry(
+                        b.data(),
+                      ).compareTo(_couponExpiry(a.data())),
+                    );
+                    final activeCoupons = couponDocs
+                        .where((doc) => _isActiveCoupon(doc.data()))
+                        .toList();
+
+                    return ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        const WorkablePageHeader(
+                          title: 'Wallet and credits',
+                          subtitle:
+                              'Track refunds, cashback, coupons, wallet usage, and monthly spending in one place.',
+                          icon: LucideIcons.wallet,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildBalanceCard(balance, earned),
+                        const SizedBox(height: 24),
+                        _buildQuickActions(),
+                        const SizedBox(height: 24),
+                        _buildCreditsSummary(walletDocs),
+                        const SizedBox(height: 24),
+                        _buildTabs(activeCoupons.length),
+                        const SizedBox(height: 16),
+                        if (activeTab == 'wallet')
+                          _buildWalletTransactions(walletDocs)
+                        else if (activeTab == 'coupons')
+                          _buildCoupons(activeCoupons)
+                        else
+                          _buildAnalytics(spent, earned, docs),
+                        const SizedBox(height: 24),
+                        _buildSecurityInfo(),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -399,7 +445,7 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
     );
   }
 
-  Widget _buildTabs() {
+  Widget _buildTabs(int couponCount) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
@@ -408,6 +454,7 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
       child: Row(
         children: [
           _tabButton('Transactions', 'wallet'),
+          _tabButton('Coupons ($couponCount)', 'coupons'),
           _tabButton('Analytics', 'analytics'),
         ],
       ),
@@ -447,6 +494,117 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
         const SizedBox(height: 12),
         ...walletDocs.take(8).map(_transactionItem),
       ],
+    );
+  }
+
+  Widget _buildCoupons(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> couponDocs,
+  ) {
+    if (couponDocs.isEmpty) {
+      return _emptyState('No active coupons yet');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Active Coupons',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        ...couponDocs.map(_couponItem),
+      ],
+    );
+  }
+
+  Widget _couponItem(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final code = data['code']?.toString() ?? 'WORKABLE10';
+    final discountType = data['discountType']?.toString() ?? 'percent';
+    final discountValue = _amount(data, 'discountValue');
+    final maxDiscount = _amount(data, 'maxDiscount');
+    final service = data['service']?.toString() ?? 'next service';
+    final expiry = _couponExpiry(data);
+    final discountText = discountType == 'percent'
+        ? '${discountValue.toStringAsFixed(0)}% off'
+        : '${_currency.format(discountValue)} off';
+    final capText = maxDiscount > 0
+        ? 'up to ${_currency.format(maxDiscount)}'
+        : 'on eligible services';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: Color(0xFFF59E0B),
+                child: Icon(LucideIcons.ticket, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$discountText $capText',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'For $service before ${DateFormat('dd MMM yyyy').format(expiry)}',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFF59E0B)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    code,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Copy coupon',
+                  onPressed: () => _copyCoupon(code, discountText, capText),
+                  icon: const Icon(LucideIcons.copy, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -676,6 +834,20 @@ class _WalletCreditsScreenState extends State<WalletCreditsScreen> {
       default:
         return data['service']?.toString() ?? 'Wallet credit';
     }
+  }
+
+  Future<void> _copyCoupon(
+    String code,
+    String discountText,
+    String capText,
+  ) async {
+    await Clipboard.setData(
+      ClipboardData(
+        text:
+            'Use my Workable coupon $code for $discountText $capText on your next service.',
+      ),
+    );
+    _showSnack('Coupon copied. Share it with someone who needs help.');
   }
 
   void _showSnack(String message) {

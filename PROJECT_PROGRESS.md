@@ -285,6 +285,16 @@ Smart Booking and AI tests:
   - submitting review should set booking `hasReview: true`
   - completed bookings that already have `hasReview: true` should not create new review reminder notifications
   - this is the foundation for later WhatsApp review link messages
+- Repeat-service coupon foundation:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - when booking payment becomes `paid`, backend should create `users/{customerId}/coupons/{repeatCouponId}`
+  - backend should not create duplicate coupons if the same booking updates again
+  - coupon should be active for about 2 months
+  - customer should be able to read own coupons, but another normal user should not
+  - customer wallet Coupons tab should show active coupon code, discount, cap, service, and expiry
+  - copy coupon action should place share text on the clipboard
+  - coupon reward notification should appear in the customer notification inbox
+  - payment screen coupon redemption is pending a later money-safe implementation pass
 
 ## Production Readiness Plan
 
@@ -619,11 +629,18 @@ Growth and marketplace innovation:
     - new member can claim it for their first service
     - original customer can receive referral reward after valid completed booking
   - implementation plan:
-    - Phase 1: Firestore `coupons` and `couponClaims` model
-    - Phase 2: show active coupons in customer wallet/payment screen
+    - Phase 1: completed backend-created customer coupon model under `users/{uid}/coupons`
+    - Phase 2: completed active coupon display in customer wallet
     - Phase 3: apply coupon to booking payment breakdown
     - Phase 4: shareable coupon/referral link
     - Phase 5: admin coupon campaign screen
+  - current implementation:
+    - when a booking payment becomes `paid`, backend creates one deterministic repeat-service coupon for the customer
+    - coupon is valid for about 2 months
+    - coupon gives 10% off up to Rs. 100
+    - coupon appears in Wallet & Credits under the Coupons tab
+    - customer can copy coupon share text from the wallet
+    - payment-screen coupon redemption is intentionally left for the next money-safe pass
   - build timing:
     - do after payment backend consistency because coupons affect money calculation
 - Service Location And Live Worker Tracking:

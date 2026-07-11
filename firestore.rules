@@ -58,6 +58,11 @@ service cloud.firestore {
         allow read, write: if isOwner(uid) || isAdmin();
       }
 
+      match /coupons/{couponId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow create, update, delete: if isAdmin();
+      }
+
       match /fcmTokens/{tokenId} {
         allow read, write: if isOwner(uid) || isAdmin();
       }
