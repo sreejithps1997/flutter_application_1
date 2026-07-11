@@ -339,6 +339,21 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /referralShareEvents/{eventId} {
+      function isShareOwner() {
+        return signedIn() && resource.data.referrerId == request.auth.uid;
+      }
+
+      function isNewShareOwner() {
+        return signedIn() &&
+          request.resource.data.referrerId == request.auth.uid;
+      }
+
+      allow read: if isShareOwner() || isAdmin();
+      allow create: if isNewShareOwner() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
     // Closed fallback. New collections should receive explicit rules before
     // production use.
     match /{document=**} {

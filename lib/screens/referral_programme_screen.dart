@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/workable_design.dart';
 import '../widgets/workable_ui.dart';
@@ -57,6 +58,7 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
 
   Future<void> _copyInviteText(String code) async {
     await Clipboard.setData(ClipboardData(text: _inviteText(code)));
+    await _trackShare(code: code, channel: 'copy_invite');
     if (!mounted) return;
     setState(() => _copied = true);
     _showSnack('Invite text copied');
@@ -66,7 +68,78 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
   }
 
   String _inviteText(String code) {
-    return 'Use my Workable referral code $code to book trusted local help faster.';
+    return 'Use my Workable referral code $code to book trusted local help faster: ${_inviteLink(code)}';
+  }
+
+  String _inviteLink(String code) {
+    return 'https://workable.app/invite?ref=${Uri.encodeComponent(code)}';
+  }
+
+  Future<void> _copyReferralCode(String code) async {
+    await Clipboard.setData(ClipboardData(text: code));
+    await _trackShare(code: code, channel: 'copy_code');
+    if (mounted) _showSnack('Referral code copied');
+  }
+
+  Future<void> _shareViaWhatsApp(String code) async {
+    final uri = Uri.parse(
+      'https://wa.me/?text=${Uri.encodeComponent(_inviteText(code))}',
+    );
+    await _launchShareUri(uri, code: code, channel: 'whatsapp');
+  }
+
+  Future<void> _shareViaSms(String code) async {
+    final uri = Uri(
+      scheme: 'sms',
+      queryParameters: {'body': _inviteText(code)},
+    );
+    await _launchShareUri(uri, code: code, channel: 'sms');
+  }
+
+  Future<void> _launchShareUri(
+    Uri uri, {
+    required String code,
+    required String channel,
+  }) async {
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (launched) {
+      await _trackShare(code: code, channel: channel);
+      return;
+    }
+
+    await _copyInviteText(code);
+    if (mounted) _showSnack('Share app not available. Invite copied instead.');
+  }
+
+  Future<void> _trackShare({
+    required String code,
+    required String channel,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final now = FieldValue.serverTimestamp();
+    final firestore = FirebaseFirestore.instance;
+    final eventRef = firestore.collection('referralShareEvents').doc();
+    final userRef = firestore.collection('users').doc(user.uid);
+
+    await firestore.runTransaction((transaction) async {
+      transaction.set(eventRef, {
+        'referrerId': user.uid,
+        'referralCode': code,
+        'channel': channel,
+        'inviteLink': _inviteLink(code),
+        'status': 'shared',
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      transaction.set(userRef, {
+        'referralShareCount': FieldValue.increment(1),
+        'lastReferralShareAt': now,
+        'lastReferralShareChannel': channel,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+    });
   }
 
   @override
@@ -320,28 +393,74 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Native share integration can be added with a share plugin later. For now this creates a ready message you can paste anywhere.',
+            'Send a ready invite through WhatsApp, SMS, or copy it for any social app.',
             style: TextStyle(color: WorkableDesign.muted, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: WorkableDesign.canvas,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: WorkableDesign.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  LucideIcons.link,
+                  color: WorkableDesign.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _inviteLink(code),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: WorkableDesign.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _copyInviteText(code),
-                  icon: const Icon(LucideIcons.share2),
-                  label: const Text('Copy Invite'),
+                  onPressed: () => _shareViaWhatsApp(code),
+                  icon: const Icon(LucideIcons.messageCircle),
+                  label: const Text('WhatsApp'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: code));
-                    if (mounted) _showSnack('Referral code copied');
-                  },
+                  onPressed: () => _shareViaSms(code),
+                  icon: const Icon(LucideIcons.messageSquare),
+                  label: const Text('SMS'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _copyInviteText(code),
                   icon: const Icon(LucideIcons.copy),
-                  label: const Text('Copy Code'),
+                  label: const Text('Copy invite'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => _copyReferralCode(code),
+                  icon: const Icon(LucideIcons.badgePercent),
+                  label: const Text('Copy code'),
                 ),
               ),
             ],

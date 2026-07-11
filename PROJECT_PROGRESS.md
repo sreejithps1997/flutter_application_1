@@ -299,6 +299,17 @@ Smart Booking and AI tests:
   - cash pending and UPI reported payment records should store `couponId`, `promoCode`, and discount metadata
   - coupon should remain active while payment is only initiated, failed, pending, or rejected
   - backend should mark coupon `used` only after booking `paymentStatus` becomes `paid`
+- Referral/share growth foundation:
+  - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - referral screen should generate/reuse the same customer referral code
+  - invite link should display with `ref` code
+  - WhatsApp share should open WhatsApp/share target with ready invite text
+  - SMS share should open the SMS composer with ready invite text
+  - copy invite should copy referral text and link
+  - copy code should copy only the referral code
+  - each share action should create a `referralShareEvents` document with owner, code, channel, link, and timestamps
+  - user document should update `referralShareCount`, `lastReferralShareAt`, and `lastReferralShareChannel`
+  - normal users should not read or create another user's referral share events
 
 ## Production Readiness Plan
 
@@ -1162,8 +1173,10 @@ Completed:
     - generates or reuses a customer referral code on `users/{uid}`
     - reads referral rows from `referrals` where `referrerId == uid`
     - shows real completed, pending, and earned reward counts from Firestore
-    - supports copying invite text and referral code through Clipboard
-    - keeps native share plugin integration as a future enhancement instead of fake sharing
+    - supports WhatsApp share, SMS share, copying invite text, and copying referral code
+    - displays a stable invite link containing the referral code
+    - records share events in `referralShareEvents`
+    - increments `referralShareCount` and stores last share channel on the user document
   - `repeat_booking_screen.dart` polished:
     - preserved real Firestore completed-booking query and frequent-service calculation
     - added shared page header, card styling, empty states, and design tokens
