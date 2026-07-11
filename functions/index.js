@@ -307,6 +307,35 @@ async function createRepeatServiceCoupon({
   });
 }
 
+async function markCouponRedeemed({
+  customerId,
+  couponId,
+  bookingId,
+  transactionId,
+}) {
+  if (!customerId || !couponId || !bookingId) return null;
+
+  const couponRef = db
+    .collection("users")
+    .doc(customerId)
+    .collection("coupons")
+    .doc(couponId);
+  const couponSnap = await couponRef.get();
+  if (!couponSnap.exists) return null;
+
+  const coupon = couponSnap.data() || {};
+  if (stringValue(coupon.status) === "used") return null;
+
+  return couponRef.set({
+    status: "used",
+    usedCount: admin.firestore.FieldValue.increment(1),
+    usedAt: admin.firestore.FieldValue.serverTimestamp(),
+    redeemedBookingId: bookingId,
+    redeemedTransactionId: transactionId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
 async function workerIdsForCategory(categoryName) {
   const workerIds = new Set();
   const skillsSnapshot = await db
@@ -1930,6 +1959,16 @@ exports.notifyCustomerToReviewBooking = functions.firestore
     }
 
     if (paymentAfter === "paid") {
+      const couponId = stringValue(after.couponId);
+      if (couponId) {
+        tasks.push(markCouponRedeemed({
+          customerId,
+          couponId,
+          bookingId,
+          transactionId: stringValue(after.paymentReference),
+        }));
+      }
+
       tasks.push(createRepeatServiceCoupon({
         bookingId,
         booking: after,

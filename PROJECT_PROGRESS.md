@@ -294,7 +294,11 @@ Smart Booking and AI tests:
   - customer wallet Coupons tab should show active coupon code, discount, cap, service, and expiry
   - copy coupon action should place share text on the clipboard
   - coupon reward notification should appear in the customer notification inbox
-  - payment screen coupon redemption is pending a later money-safe implementation pass
+  - payment screen should show active wallet coupons in Offers
+  - tapping a wallet coupon should apply the code and update the payable total
+  - cash pending and UPI reported payment records should store `couponId`, `promoCode`, and discount metadata
+  - coupon should remain active while payment is only initiated, failed, pending, or rejected
+  - backend should mark coupon `used` only after booking `paymentStatus` becomes `paid`
 
 ## Production Readiness Plan
 
@@ -640,7 +644,9 @@ Growth and marketplace innovation:
     - coupon gives 10% off up to Rs. 100
     - coupon appears in Wallet & Credits under the Coupons tab
     - customer can copy coupon share text from the wallet
-    - payment-screen coupon redemption is intentionally left for the next money-safe pass
+    - payment screen can apply active wallet coupons and records coupon metadata in booking/help/transaction payment records
+    - backend marks a coupon as used only when the booking payment becomes `paid`
+    - rejected or abandoned payment attempts should not consume the coupon
   - build timing:
     - do after payment backend consistency because coupons affect money calculation
 - Service Location And Live Worker Tracking:

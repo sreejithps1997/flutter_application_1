@@ -7,6 +7,10 @@ class BookingPaymentBreakdown {
     required this.discount,
     required this.total,
     this.promoCode,
+    this.couponId,
+    this.couponDiscountType,
+    this.couponDiscountValue,
+    this.couponMaxDiscount,
   });
 
   final double subtotal;
@@ -14,6 +18,10 @@ class BookingPaymentBreakdown {
   final double discount;
   final double total;
   final String? promoCode;
+  final String? couponId;
+  final String? couponDiscountType;
+  final double? couponDiscountValue;
+  final double? couponMaxDiscount;
 }
 
 class BookingPaymentRepository {
@@ -225,6 +233,13 @@ class BookingPaymentRepository {
         'totalAmount': breakdown.total,
         if (upiId != null) 'paymentUpiId': upiId,
         'promoCode': breakdown.promoCode,
+        if (breakdown.couponId != null) 'couponId': breakdown.couponId,
+        if (breakdown.couponDiscountType != null)
+          'couponDiscountType': breakdown.couponDiscountType,
+        if (breakdown.couponDiscountValue != null)
+          'couponDiscountValue': breakdown.couponDiscountValue,
+        if (breakdown.couponMaxDiscount != null)
+          'couponMaxDiscount': breakdown.couponMaxDiscount,
         'status': bookingStatus,
         'updatedAt': now,
       });
@@ -243,6 +258,13 @@ class BookingPaymentRepository {
               'totalAmount': breakdown.total,
               if (upiId != null) 'paymentUpiId': upiId,
               'promoCode': breakdown.promoCode,
+              if (breakdown.couponId != null) 'couponId': breakdown.couponId,
+              if (breakdown.couponDiscountType != null)
+                'couponDiscountType': breakdown.couponDiscountType,
+              if (breakdown.couponDiscountValue != null)
+                'couponDiscountValue': breakdown.couponDiscountValue,
+              if (breakdown.couponMaxDiscount != null)
+                'couponMaxDiscount': breakdown.couponMaxDiscount,
               'updatedAt': now,
             });
       }
@@ -263,6 +285,13 @@ class BookingPaymentRepository {
         'discount': breakdown.discount,
         'total': breakdown.total,
         'promoCode': breakdown.promoCode,
+        if (breakdown.couponId != null) 'couponId': breakdown.couponId,
+        if (breakdown.couponDiscountType != null)
+          'couponDiscountType': breakdown.couponDiscountType,
+        if (breakdown.couponDiscountValue != null)
+          'couponDiscountValue': breakdown.couponDiscountValue,
+        if (breakdown.couponMaxDiscount != null)
+          'couponMaxDiscount': breakdown.couponMaxDiscount,
         'createdAt': now,
         'updatedAt': now,
       };

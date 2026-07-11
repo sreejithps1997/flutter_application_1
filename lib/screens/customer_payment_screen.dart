@@ -28,6 +28,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
   final _currency = NumberFormat.currency(locale: 'en_IN', symbol: 'Rs. ');
 
   String _selectedMethod = 'phonepe';
+  String? _selectedCouponId;
   bool _isProcessing = false;
   bool _promoApplied = false;
   String? _promoMessage;
@@ -103,6 +104,14 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
   DocumentReference<Map<String, dynamic>> get _bookingRef =>
       FirebaseFirestore.instance.collection('bookings').doc(widget.bookingId);
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> _couponStream(String uid) {
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('coupons')
+        .snapshots();
+  }
+
   double _asAmount(dynamic value) {
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value) ?? 0;
@@ -121,34 +130,122 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     return (subtotal * 0.03).clamp(15, 49).toDouble();
   }
 
-  double _discount(double subtotal) {
+  DateTime _couponExpiry(Map<String, dynamic> data) {
+    final timestamp = data['validUntil'];
+    if (timestamp is Timestamp) return timestamp.toDate();
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  bool _isActiveCoupon(Map<String, dynamic> data) {
+    final status = data['status']?.toString() ?? 'active';
+    final expiry = _couponExpiry(data);
+    final usageLimit = (data['usageLimit'] is num)
+        ? (data['usageLimit'] as num).toInt()
+        : 1;
+    final usedCount = (data['usedCount'] is num)
+        ? (data['usedCount'] as num).toInt()
+        : 0;
+    return status == 'active' &&
+        expiry.isAfter(DateTime.now()) &&
+        usedCount < usageLimit;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _activeCoupons(
+    QuerySnapshot<Map<String, dynamic>>? snapshot,
+  ) {
+    final docs = snapshot?.docs.toList() ?? [];
+    return docs.where((doc) => _isActiveCoupon(doc.data())).toList()..sort(
+      (a, b) => _couponExpiry(a.data()).compareTo(_couponExpiry(b.data())),
+    );
+  }
+
+  QueryDocumentSnapshot<Map<String, dynamic>>? _selectedCoupon(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activeCoupons,
+  ) {
+    final selectedCode = _promoCodeController.text.trim().toUpperCase();
+    if (selectedCode.isEmpty) return null;
+    for (final coupon in activeCoupons) {
+      final code = coupon.data()['code']?.toString().toUpperCase();
+      if (coupon.id == _selectedCouponId || code == selectedCode) {
+        return coupon;
+      }
+    }
+    return null;
+  }
+
+  double _couponDiscount(
+    double subtotal,
+    QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
+  ) {
+    if (coupon == null) return 0;
+    final data = coupon.data();
+    final type = data['discountType']?.toString() ?? 'percent';
+    final value = _asAmount(data['discountValue']);
+    final cap = _asAmount(data['maxDiscount']);
+    final calculated = type == 'percent' ? subtotal * (value / 100) : value;
+    if (cap > 0) return calculated.clamp(0, cap).toDouble();
+    return calculated.clamp(0, subtotal).toDouble();
+  }
+
+  double _discount(
+    double subtotal,
+    QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
+  ) {
+    if (coupon != null) return _couponDiscount(subtotal, coupon);
     if (!_promoApplied) return 0;
     return (subtotal * 0.10).clamp(0, 100).toDouble();
   }
 
-  double _payableTotal(Map<String, dynamic> booking) {
+  double _payableTotal(
+    Map<String, dynamic> booking,
+    QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
+  ) {
     final subtotal = _bookingAmount(booking);
-    return subtotal + _platformFee(subtotal) - _discount(subtotal);
+    return subtotal + _platformFee(subtotal) - _discount(subtotal, coupon);
   }
 
-  void _applyPromo(Map<String, dynamic> booking) {
+  void _applyPromo(
+    Map<String, dynamic> booking,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activeCoupons,
+  ) {
     final code = _promoCodeController.text.trim().toUpperCase();
+    QueryDocumentSnapshot<Map<String, dynamic>>? matchedCoupon;
+    for (final coupon in activeCoupons) {
+      if (coupon.data()['code']?.toString().toUpperCase() == code) {
+        matchedCoupon = coupon;
+        break;
+      }
+    }
+
     setState(() {
-      if (code == 'WORKABLE10') {
+      if (matchedCoupon != null) {
+        _selectedCouponId = matchedCoupon.id;
         _promoApplied = true;
         _promoMessage =
-            'WORKABLE10 applied. You saved ${_currency.format(_discount(_bookingAmount(booking)))}.';
+            '$code applied. You saved ${_currency.format(_couponDiscount(_bookingAmount(booking), matchedCoupon))}.';
+      } else if (code == 'WORKABLE10') {
+        _selectedCouponId = null;
+        _promoApplied = true;
+        _promoMessage =
+            'WORKABLE10 applied. You saved ${_currency.format(_discount(_bookingAmount(booking), null))}.';
       } else if (code.isEmpty) {
+        _selectedCouponId = null;
         _promoApplied = false;
-        _promoMessage = 'Enter WORKABLE10 to apply a 10% launch discount.';
+        _promoMessage = activeCoupons.isEmpty
+            ? 'Enter WORKABLE10 to apply a 10% launch discount.'
+            : 'Enter or tap an active coupon code.';
       } else {
+        _selectedCouponId = null;
         _promoApplied = false;
         _promoMessage = 'Promo code is not valid for this booking.';
       }
     });
   }
 
-  Future<void> _submitPayment(Map<String, dynamic> booking) async {
+  Future<void> _submitPayment(
+    Map<String, dynamic> booking,
+    QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
+  ) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showSnack('Please log in again to complete payment.', isError: true);
@@ -159,7 +256,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
 
     final subtotal = _bookingAmount(booking);
     final platformFee = _platformFee(subtotal);
-    final discount = _discount(subtotal);
+    final discount = _discount(subtotal, coupon);
     final total = subtotal + platformFee - discount;
     final isCash = _selectedMethod == 'Cash on Delivery';
     final transactionId = 'TXN${DateTime.now().millisecondsSinceEpoch}';
@@ -168,6 +265,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
       platformFee: platformFee,
       discount: discount,
       total: total,
+      coupon: coupon,
     );
 
     try {
@@ -180,6 +278,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
           platformFee: platformFee,
           discount: discount,
           total: total,
+          coupon: coupon,
         );
         return;
       }
@@ -228,6 +327,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     required double platformFee,
     required double discount,
     required double total,
+    required QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
   }) async {
     final method = _paymentMethods.firstWhere((m) => m.id == _selectedMethod);
     final upiId = _merchantUpiId(booking);
@@ -248,6 +348,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
       platformFee: platformFee,
       discount: discount,
       total: total,
+      coupon: coupon,
       upiId: upiId,
       status: 'initiated',
     );
@@ -283,6 +384,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
         platformFee: platformFee,
         discount: discount,
         total: total,
+        coupon: coupon,
         upiId: upiId,
         status: 'launch_failed',
       );
@@ -301,6 +403,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
       platformFee: platformFee,
       discount: discount,
       total: total,
+      coupon: coupon,
       upiId: upiId,
     );
   }
@@ -332,6 +435,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     required double platformFee,
     required double discount,
     required double total,
+    required QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
     required String upiId,
     required String status,
   }) async {
@@ -345,6 +449,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
         platformFee: platformFee,
         discount: discount,
         total: total,
+        coupon: coupon,
       ),
       upiId: upiId,
       status: status,
@@ -356,13 +461,23 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     required double platformFee,
     required double discount,
     required double total,
+    required QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
   }) {
+    final couponData = coupon?.data();
     return BookingPaymentBreakdown(
       subtotal: subtotal,
       platformFee: platformFee,
       discount: discount,
       total: total,
       promoCode: _promoApplied ? _promoCodeController.text.trim() : null,
+      couponId: coupon?.id,
+      couponDiscountType: couponData?['discountType']?.toString(),
+      couponDiscountValue: coupon == null
+          ? null
+          : _asAmount(couponData?['discountValue']),
+      couponMaxDiscount: coupon == null
+          ? null
+          : _asAmount(couponData?['maxDiscount']),
     );
   }
 
@@ -374,6 +489,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     required double platformFee,
     required double discount,
     required double total,
+    required QueryDocumentSnapshot<Map<String, dynamic>>? coupon,
     required String upiId,
   }) async {
     final completed = await showModalBottomSheet<bool>(
@@ -441,6 +557,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
         platformFee: platformFee,
         discount: discount,
         total: total,
+        coupon: coupon,
         upiId: upiId,
         status: 'customer_reported_paid',
       );
@@ -486,35 +603,50 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
           }
 
           final booking = snapshot.data!.data()!;
-          final subtotal = _bookingAmount(booking);
-          final fee = _platformFee(subtotal);
-          final discount = _discount(subtotal);
-          final total = _payableTotal(booking);
-          final paymentState = _PaymentState.from(booking);
+          final user = FirebaseAuth.instance.currentUser;
+          if (user == null) {
+            return _buildEmptyState(
+              title: 'Sign in required',
+              message: 'Please log in again to complete checkout.',
+            );
+          }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _buildHeaderCard(booking, total),
-              const SizedBox(height: 16),
-              _buildPaymentStateCard(paymentState),
-              const SizedBox(height: 16),
-              if (!paymentState.isLocked) ...[
-                _buildPaymentMethods(),
-                const SizedBox(height: 16),
-                _buildPromoCard(booking),
-                const SizedBox(height: 16),
-              ],
-              _buildSummaryCard(
-                subtotal: subtotal,
-                platformFee: fee,
-                discount: discount,
-                total: total,
-              ),
-              const SizedBox(height: 16),
-              _buildTrustCard(),
-              const SizedBox(height: 96),
-            ],
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _couponStream(user.uid),
+            builder: (context, couponSnapshot) {
+              final activeCoupons = _activeCoupons(couponSnapshot.data);
+              final selectedCoupon = _selectedCoupon(activeCoupons);
+              final subtotal = _bookingAmount(booking);
+              final fee = _platformFee(subtotal);
+              final discount = _discount(subtotal, selectedCoupon);
+              final total = _payableTotal(booking, selectedCoupon);
+              final paymentState = _PaymentState.from(booking);
+
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _buildHeaderCard(booking, total),
+                  const SizedBox(height: 16),
+                  _buildPaymentStateCard(paymentState),
+                  const SizedBox(height: 16),
+                  if (!paymentState.isLocked) ...[
+                    _buildPaymentMethods(),
+                    const SizedBox(height: 16),
+                    _buildPromoCard(booking, activeCoupons),
+                    const SizedBox(height: 16),
+                  ],
+                  _buildSummaryCard(
+                    subtotal: subtotal,
+                    platformFee: fee,
+                    discount: discount,
+                    total: total,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTrustCard(),
+                  const SizedBox(height: 96),
+                ],
+              );
+            },
           );
         },
       ),
@@ -526,72 +658,87 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
                 return const SizedBox.shrink();
               }
               final booking = snapshot.data!.data()!;
-              final total = _payableTotal(booking);
               final paymentState = _PaymentState.from(booking);
-              return SafeArea(
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  decoration: const BoxDecoration(
-                    color: WorkableDesign.surface,
-                    border: Border(
-                      top: BorderSide(color: WorkableDesign.border),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Payable now',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              _currency.format(total),
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
+              final user = FirebaseAuth.instance.currentUser;
+              if (user == null) return const SizedBox.shrink();
+
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _couponStream(user.uid),
+                builder: (context, couponSnapshot) {
+                  final activeCoupons = _activeCoupons(couponSnapshot.data);
+                  final selectedCoupon = _selectedCoupon(activeCoupons);
+                  final total = _payableTotal(booking, selectedCoupon);
+
+                  return SafeArea(
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      decoration: const BoxDecoration(
+                        color: WorkableDesign.surface,
+                        border: Border(
+                          top: BorderSide(color: WorkableDesign.border),
                         ),
                       ),
-                      FilledButton.icon(
-                        onPressed: _isProcessing || paymentState.isLocked
-                            ? null
-                            : () => _submitPayment(booking),
-                        icon: _isProcessing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Payable now',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              )
-                            : const Icon(LucideIcons.lock),
-                        label: Text(
-                          paymentState.isLocked
-                              ? paymentState.actionLabel
-                              : _selectedMethod == 'Cash on Delivery'
-                              ? 'Confirm'
-                              : 'Pay now',
-                        ),
+                                Text(
+                                  _currency.format(total),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _isProcessing || paymentState.isLocked
+                                ? null
+                                : () => _submitPayment(booking, selectedCoupon),
+                            icon: _isProcessing
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(LucideIcons.lock),
+                            label: Text(
+                              paymentState.isLocked
+                                  ? paymentState.actionLabel
+                                  : _selectedMethod == 'Cash on Delivery'
+                                  ? 'Confirm'
+                                  : 'Pay now',
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
           ),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState({
+    String title = 'Booking not found',
+    String message =
+        'We could not load this checkout. Please open it again from your bookings.',
+  }) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -600,13 +747,13 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
           children: [
             Icon(LucideIcons.receipt, size: 44, color: Colors.grey.shade500),
             const SizedBox(height: 12),
-            const Text(
-              'Booking not found',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
-              'We could not load this checkout. Please open it again from your bookings.',
+              message,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade600),
             ),
@@ -773,12 +920,35 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
     );
   }
 
-  Widget _buildPromoCard(Map<String, dynamic> booking) {
+  Widget _buildPromoCard(
+    Map<String, dynamic> booking,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activeCoupons,
+  ) {
     return _buildPanel(
       title: 'Offers',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (activeCoupons.isNotEmpty) ...[
+            Text(
+              'Available from your wallet',
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: activeCoupons
+                  .take(4)
+                  .map((coupon) => _couponChip(booking, coupon, activeCoupons))
+                  .toList(),
+            ),
+            const SizedBox(height: 14),
+          ],
           Row(
             children: [
               Expanded(
@@ -797,7 +967,7 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: () => _applyPromo(booking),
+                onPressed: () => _applyPromo(booking, activeCoupons),
                 child: const Text('Apply'),
               ),
             ],
@@ -815,6 +985,37 @@ class _CustomerPaymentScreenState extends State<CustomerPaymentScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _couponChip(
+    Map<String, dynamic> booking,
+    QueryDocumentSnapshot<Map<String, dynamic>> coupon,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> activeCoupons,
+  ) {
+    final data = coupon.data();
+    final code = data['code']?.toString() ?? '';
+    final discountType = data['discountType']?.toString() ?? 'percent';
+    final value = _asAmount(data['discountValue']);
+    final expiry = _couponExpiry(data);
+    final selected = coupon.id == _selectedCouponId;
+    final label = discountType == 'percent'
+        ? '${value.toStringAsFixed(0)}% off'
+        : '${_currency.format(value)} off';
+
+    return ActionChip(
+      avatar: Icon(
+        selected ? LucideIcons.checkCircle2 : LucideIcons.ticket,
+        size: 16,
+        color: selected ? Colors.green.shade700 : const Color(0xFFF59E0B),
+      ),
+      label: Text('$code - $label'),
+      tooltip: 'Valid until ${DateFormat('dd MMM yyyy').format(expiry)}',
+      onPressed: () {
+        _promoCodeController.text = code;
+        _selectedCouponId = coupon.id;
+        _applyPromo(booking, activeCoupons);
+      },
     );
   }
 
