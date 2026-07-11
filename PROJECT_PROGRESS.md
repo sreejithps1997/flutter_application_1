@@ -547,6 +547,81 @@ Growth and marketplace innovation:
   - real invite links for customers and workers
   - share app, share job demand, share worker profile, share referral code
   - reward logic can be added after payment/trust systems stabilize
+- WhatsApp Review And Relationship Messaging:
+  - after a booking is completed, send the customer a WhatsApp review request with a deep link to the exact worker review page
+  - link should open the app directly to the booking/worker review screen when installed, or to an install/web fallback later
+  - after review submission, send a thank-you message and optionally a next-service coupon
+  - periodic WhatsApp messages can remind customers about useful services, maintenance, offers, and saved family/home needs
+  - customer data questions should be consent-first and optional:
+    - age range
+    - health support needs
+    - elder/family care needs
+    - preferred hospital/medical support area
+    - suggestions to improve Workable
+  - medical/emergency-related messaging must be framed as help coordination, not medical advice
+  - do not build this as spam; add notification consent, WhatsApp opt-in, unsubscribe/stop option, and message frequency limits
+  - use cases:
+    - review collection
+    - repeat service recall
+    - hospital pickup/drop or emergency helper booking
+    - elder support and family assistance
+    - product feedback collection
+  - implementation plan:
+    - Phase 1: in-app review reminder notification after booking completion
+    - Phase 2: generate review deep links and shareable WhatsApp message manually
+    - Phase 3: WhatsApp Business API integration for automated approved templates
+    - Phase 4: consent-based customer preference profile for family/health/support needs
+  - build timing:
+    - do after payment/payout trust cleanup and basic referral/share foundation
+    - automated WhatsApp Business API should wait until legal/privacy wording and opt-in are ready
+- Repeat-Service Coupon Engine:
+  - after successful booking/payment/review, issue a coupon valid for about 2 months
+  - goal: bring customers back before they forget the app
+  - coupon should support:
+    - discount amount/percentage
+    - validity start/end date
+    - allowed service categories
+    - city/area restrictions
+    - first-use/new-user sharing option
+    - one-time use or limited-use rules
+    - customer wallet/credits display
+  - sharing idea:
+    - customer can share a coupon link/code with a friend
+    - new member can claim it for their first service
+    - original customer can receive referral reward after valid completed booking
+  - implementation plan:
+    - Phase 1: Firestore `coupons` and `couponClaims` model
+    - Phase 2: show active coupons in customer wallet/payment screen
+    - Phase 3: apply coupon to booking payment breakdown
+    - Phase 4: shareable coupon/referral link
+    - Phase 5: admin coupon campaign screen
+  - build timing:
+    - do after payment backend consistency because coupons affect money calculation
+- Service Location And Live Worker Tracking:
+  - booking should store a precise service location, not only a text address
+  - customer should be able to tap/select saved address and automatically attach map coordinates
+  - worker should get navigation-ready location for the exact service place
+  - customer should see worker arrival progress like Uber/Swiggy-style tracking when a job is accepted/in progress
+  - worker location tracking can support:
+    - arrival ETA
+    - start duty timestamp
+    - work started timestamp
+    - work completed timestamp
+    - fair wage/time calculation later
+    - dispute/admin evidence if arrival or completion is contested
+  - privacy and safety rules:
+    - track live worker location only during accepted/in-progress jobs
+    - stop tracking after completion/cancellation
+    - show clear worker consent/visibility state
+    - store only necessary route/timestamp data
+  - implementation plan:
+    - Phase 1: normalize booking service location fields: address text, GeoPoint, city, landmark
+    - Phase 2: improve saved address -> booking location handoff
+    - Phase 3: worker navigation button
+    - Phase 4: live location stream for accepted/in-progress bookings
+    - Phase 5: ETA, duty timing, and wage/time calculation
+  - build timing:
+    - do after payment/payout trust cleanup and before advanced wage automation
 - Daily Use Hooks:
   - daily local help feed, maintenance reminders, saved family/home tasks, upcoming service reminders, worker opportunity alerts
   - goal: users open Workable regularly, not only during emergencies
