@@ -179,7 +179,8 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                     final pending = docs.where((doc) {
                       final status = doc.data()['status']?.toString() ?? '';
                       return status == 'pending' ||
-                          status == 'pending_first_paid_booking';
+                          status == 'pending_first_paid_booking' ||
+                          status == 'pending_worker_onboarding';
                     }).length;
                     final earned = docs.fold<num>(0, (total, doc) {
                       final data = doc.data();
@@ -516,6 +517,8 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
         : WorkableDesign.warning;
     final label = status == 'pending_first_paid_booking'
         ? 'first booking pending'
+        : status == 'pending_worker_onboarding'
+        ? 'worker onboarding pending'
         : status.replaceAll('_', ' ');
     final name =
         data['friendName']?.toString() ??

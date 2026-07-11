@@ -313,15 +313,19 @@ Smart Booking and AI tests:
 - Referral conversion/reward audit foundation:
   - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
   - customer signup should accept an optional referral code
+  - worker signup should accept an optional referral code
   - email signup and Google signup should save `referredByCode` when provided
+  - worker email signup should save `referredByCode` when provided
   - backend should resolve `referredByCode` to the real referrer user
   - backend should create `referrals/referred_{newUserId}` with referrer id, referred user id, code, status, and reward fields
+  - backend should store `referredUserRole` so customer and worker acquisition can be audited separately
   - invalid code should mark the new user's referral status as `invalid_code`
   - self referral should be blocked
   - changing referral code after referral audit exists should not change the original referrer
   - referrer should get a notification when a referred user joins
   - when referred customer completes first paid booking, referral should move to `completed`
   - reward should become `ready_for_credit` for admin/future promotion review
+  - referred worker should remain `pending_worker_onboarding` until future admin/promotion policy decides when to unlock worker-acquisition rewards
 
 ## Production Readiness Plan
 
@@ -615,8 +619,11 @@ Growth and marketplace innovation:
   - reward logic can be added after payment/trust systems stabilize
   - current foundation:
     - signup captures optional referral code
+    - worker signup also captures optional referral code
     - backend creates immutable referral audit record
+    - backend records whether the referred user is a customer or worker
     - backend unlocks reward after first paid booking
+    - worker referral reward unlock policy is intentionally left for later admin/business rules
     - reward is marked ready for credit/review instead of blindly paying immediately
 - WhatsApp Review And Relationship Messaging:
   - after a booking is completed, send the customer a WhatsApp review request with a deep link to the exact worker review page

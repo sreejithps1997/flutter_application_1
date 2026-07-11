@@ -28,6 +28,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _referralCodeController = TextEditingController();
   final _authService = AuthService();
   final _picker = ImagePicker();
 
@@ -43,6 +44,14 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   bool _isVerifyingOtp = false;
   bool _isPhoneVerified = false;
   bool _isTestMode = false;
+
+  String? get _cleanReferralCode {
+    final clean = _referralCodeController.text
+        .trim()
+        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+        .toUpperCase();
+    return clean.isEmpty ? null : clean;
+  }
 
   bool _isTestNumber(String phone) {
     const testNumbers = ['+919999999999', '+91123456'];
@@ -89,6 +98,9 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'phoneNumber': '+91${_phoneController.text.trim()}',
         'phoneVerified': true,
+        if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
+        if (_cleanReferralCode != null)
+          'referralStatus': 'pending_backend_check',
       }, SetOptions(merge: true));
 
       final userDoc = await FirebaseFirestore.instance
@@ -357,6 +369,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
     _phoneController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _referralCodeController.dispose();
     super.dispose();
   }
 
@@ -475,6 +488,8 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
                     ),
                     const SizedBox(height: 14),
                     _buildPasswordField(),
+                    const SizedBox(height: 14),
+                    _buildReferralField(),
                   ],
                 ),
               ),
@@ -700,6 +715,25 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
     );
   }
 
+  Widget _buildReferralField() {
+    return _buildTextField(
+      controller: _referralCodeController,
+      label: 'Referral code (optional)',
+      icon: Icons.card_giftcard_outlined,
+      textCapitalization: TextCapitalization.characters,
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+      ],
+      validator: (value) {
+        final clean =
+            value?.trim().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '') ?? '';
+        if (clean.isEmpty) return null;
+        if (clean.length < 4) return 'Enter a valid referral code';
+        return null;
+      },
+    );
+  }
+
   Widget _buildTextField({
     TextEditingController? controller,
     String? label,
@@ -707,6 +741,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
     TextInputType keyboardType = TextInputType.text,
     TextInputAction? textInputAction,
     List<TextInputFormatter>? inputFormatters,
+    TextCapitalization textCapitalization = TextCapitalization.none,
     String? Function(String?)? validator,
     ValueChanged<String>? onChanged,
   }) {
@@ -715,6 +750,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       inputFormatters: inputFormatters,
+      textCapitalization: textCapitalization,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: icon != null ? Icon(icon) : null,

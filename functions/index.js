@@ -391,6 +391,13 @@ async function createReferralConversionForUser(uid, userData) {
   const now = admin.firestore.FieldValue.serverTimestamp();
   const referrer = referrerDoc.data() || {};
   const referredName = textFrom(userData, ["name", "displayName"], "New customer");
+  const referredRole = stringValue(userData && userData.userType, "customer");
+  const initialStatus = referredRole === "worker" ?
+    "pending_worker_onboarding" :
+    "pending_first_paid_booking";
+  const notificationMessage = referredRole === "worker" ?
+    `${referredName} joined as a worker with your referral code. Reward unlocks after worker onboarding policy is approved.` :
+    `${referredName} signed up with your referral code. Reward unlocks after their first paid booking.`;
 
   const batch = db.batch();
   batch.set(referralRef, {
@@ -403,7 +410,8 @@ async function createReferralConversionForUser(uid, userData) {
     referredUserPhone: stringValue(
       (userData && userData.phoneNumber) || (userData && userData.phone)
     ),
-    status: "pending_first_paid_booking",
+    referredUserRole: referredRole,
+    status: initialStatus,
     rewardStatus: "locked",
     rewardAmount: 0,
     rewardCurrency: "INR",
@@ -414,7 +422,7 @@ async function createReferralConversionForUser(uid, userData) {
   batch.set(userRef, {
     referredByUserId: referrerId,
     referredByCode: code,
-    referralStatus: "pending_first_paid_booking",
+    referralStatus: initialStatus,
     referralTrackedAt: now,
     updatedAt: now,
   }, {merge: true});
@@ -431,15 +439,16 @@ async function createReferralConversionForUser(uid, userData) {
     ])),
     {
       title: "Your referral joined Workable",
-      message: `${referredName} signed up with your referral code. Reward unlocks after their first paid booking.`,
-      body: `${referredName} signed up with your referral code. Reward unlocks after their first paid booking.`,
+      message: notificationMessage,
+      body: notificationMessage,
       type: "referral_joined",
-      status: "pending_first_paid_booking",
+      status: initialStatus,
       requiresAction: false,
       notificationCategory: "referral",
       category: "referral",
       metadata: {
         referredUserId: uid,
+        referredUserRole: referredRole,
         referralCode: code,
         userRole: "customer",
       },
