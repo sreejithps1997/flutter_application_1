@@ -594,6 +594,347 @@ AI features to add:
   - examples: Highly Reliable, Fast Responder, Best for Urgent Jobs, Budget Friendly, Premium Expert
 
 Growth and marketplace innovation:
+- Feature Extension Backlog - High-Potential Viral And Community Ideas:
+  - Seasonal And Community Service Campaigns:
+    - occasion-based campaigns that create demand before problems happen
+    - examples:
+      - Summer AC Cleaning Camp
+      - pre-monsoon roof, drainage, mould, mosquito, and electrical inspection
+      - Vishu, Onam, Diwali, Christmas, Eid, and other festival home cleaning
+      - school reopening home organisation
+      - post-festival waste cleaning
+      - infection-spread sanitation and deep-cleaning campaigns
+      - apartment/residential-association cleaning drives
+      - water-tank and kitchen deep-cleaning camps
+    - customer actions:
+      - view campaign details
+      - select required services
+      - choose date/preferred slot
+      - one-tap booking
+      - share campaign with neighbours
+      - unlock better price when more nearby customers join
+    - admin campaign calendar should support:
+      - campaign name
+      - start/end dates
+      - target city/locality/apartment
+      - applicable service categories
+      - discount type and group-pricing tiers
+      - minimum bookings
+      - banner image/message
+      - available worker count
+      - booking limit
+      - campaign status
+      - emergency/unplanned campaigns for floods, heavy rain, disease spread, or local events
+    - show only location-relevant and usage-relevant banners to avoid customer fatigue
+    - later AI layer:
+      - Autonomous Local Campaign Creator that recommends campaign timing, location, discount, workers, and expected travel savings
+  - Workable Neighbourhood Deal:
+    - after a booking, customer can invite nearby homes to join the same service
+    - example copy: "Invite 3 nearby homes and everyone gets Rs 150 off"
+    - show homes joined, discount tiers, campaign date, locality, remaining slots, and WhatsApp share
+    - never reveal exact addresses; show only approximate locality such as "5 homes joined near Kakkanad"
+    - group pricing tiers can be:
+      - 1 home: normal price
+      - 3 homes: 10% discount
+      - 5 homes: 15% discount
+      - 10 homes: special community rate
+  - I Also Need This Community Demand Board:
+    - customer can join an anonymised local demand card
+    - example: "4 people near you also need tank cleaning"
+    - when enough customers join, Workable converts it into a service camp
+    - useful for AC service, water-tank cleaning, pest control, deep cleaning, septic service, garden cleaning, electrical safety inspection, and pre-monsoon maintenance
+  - Worker Hours, Badges, And Achievement System:
+    - calculate verified working hours in addition to completed days/jobs
+    - badge should consider:
+      - verified working hours
+      - completed jobs
+      - rating
+      - repeat customers
+      - cancellation rate
+      - on-time arrival
+      - complaint/dispute history
+      - skill verification
+      - identity/police verification
+      - training completion
+      - response/acceptance rate
+      - work quality by category
+    - badge levels:
+      - Verified
+      - Silver
+      - Gold
+      - Diamond
+      - Platinum
+    - avoid calling any worker "Normal"
+    - customer badge details should explain criteria transparently:
+      - verified working hours
+      - completed jobs
+      - average rating
+      - on-time percentage
+      - repeat customers
+      - verification state
+    - monthly worker recognition banners:
+      - Top-rated electrician in your area
+      - 100 jobs completed
+      - 500 verified hours achieved
+      - Zero cancellations this month
+      - Most punctual professional
+      - Customer favourite
+      - Fastest-growing professional
+      - Best newcomer
+  - Worker Experience Certificate:
+    - downloadable "Workable Verified Work Record" or "Workable Professional Experience Certificate"
+    - must not look like a government/academic certificate
+    - certificate can include:
+      - verified name/photo
+      - Workable worker ID
+      - profession/skills
+      - activity period
+      - verified working hours
+      - completed jobs
+      - average rating
+      - category-wise performance
+      - badges/achievements
+      - training completed
+      - issue date
+      - certificate number
+      - QR verification link
+    - allow category-specific certificates so workers can share only relevant work history
+    - useful for permanent jobs, contractors, salary negotiation, credibility, livelihood support, and loans
+  - Worker Wage Improvement Recommendations:
+    - do not auto-increase rates only because of badge
+    - show recommended range:
+      - "Based on Gold status and local demand, suggested rate is Rs 650-Rs 750"
+    - worker chooses whether to apply
+    - customer must always see final price before booking
+  - Simple One-Tap Signup:
+    - high priority because every extra signup field reduces conversion
+    - customer signup should initially request only:
+      - mobile number
+      - OTP
+      - name, or ask after login
+      - location permission with skip option
+    - use progressive profiling:
+      - address while first booking
+      - email for invoice
+      - emergency info only for emergency/family-care use
+      - preferences after service
+    - ideal customer flow:
+      - mobile number -> OTP -> optional location -> home screen
+    - worker signup should be staged:
+      - phone/OTP
+      - name/location
+      - choose skills
+      - basic profile created
+      - upload verification later
+      - training/background checks before receiving jobs
+    - show progress:
+      - "Profile 40% complete - Complete verification to start receiving bookings"
+  - Worker Mini-Store And Personal Booking Link:
+    - every verified worker gets a public professional page
+    - example: `workable.in/pro/suresh-electrician`
+    - page can show badge, skills, completed jobs, verified hours, category ratings, service area, time slots, starting prices, reviews, book button, WhatsApp share, and QR code
+    - bookings still happen safely through Workable
+  - Refer A Trusted Local Worker:
+    - customers can invite a known electrician, cleaner, carpenter, mechanic, driver, helper, etc.
+    - customer gets credit only after worker passes verification and completes required jobs
+    - worker can get joining benefit
+    - helps solve worker supply and customer growth together
+  - Automatically Generated Before/After Stories:
+    - after cleaning, repair, painting, etc., app can create shareable card/video with customer consent
+    - remove faces, house numbers, documents, vehicle numbers, exact location, and private info
+    - link should open exact service/campaign, not only app homepage
+  - Gift A Service:
+    - customers can gift services to parents/family/friends
+    - examples:
+      - housewarming cleaning
+      - AC servicing for parents
+      - elderly home-safety inspection
+      - festival cleaning
+      - new-parent home support
+      - moving-in cleaning
+      - post-hospitalisation home support
+    - recipient joins app to schedule service
+  - Family Care Circle:
+    - one customer can manage own home, parents' home, rental property, office, shop, or holiday home
+    - family members can be invited with permissions
+    - remote booking, quotation approval, arrival tracking, payment, completion report, invoices, and warranties
+  - Workable Home Passport:
+    - permanent service record for every home
+    - tracks AC service, water filter, tank cleaning, pest control, electrical inspection, plumbing repairs, appliance warranties, invoices, before/after photos, and reminders
+    - can show Home Care Score
+    - can be shared with family, tenants, landlords, buyers, or property managers
+  - Apartment Captain Programme:
+    - resident/association/property manager can become Workable Community Captain
+    - can start apartment campaigns, collect demand, schedule common-area services, organise pre-monsoon inspections, share campaigns, and earn credits for maintenance fund
+    - captain sees aggregate data only, not private resident bookings
+  - Workable Community Impact Programme:
+    - after enough paid bookings in an area, Workable can sponsor useful community services
+    - examples:
+      - elderly person's home cleaning
+      - public waiting-area cleaning
+      - school repair
+      - waste-removal campaign
+      - rainwater-drain cleaning
+      - electrical safety inspection for low-income household
+    - show local impact meter:
+      - paid services completed
+      - free community services sponsored
+      - verified professionals supported
+    - customers/workers can share genuine impact certificates
+  - Worker Achievement Sharing:
+    - create share cards for badges and milestones
+    - examples:
+      - Diamond Professional achieved
+      - 1,500 verified working hours
+      - 230 successful services
+      - 4.8 rating
+      - 97% punctuality
+    - workers naturally share these as professional proof
+  - One Request, Multiple Services:
+    - customer states outcome instead of booking separate services
+    - example: "I am organising my daughter's birthday at home"
+    - app suggests cleaning, decorations, cake pickup, photographer, temporary helper, food delivery, post-event cleaning, cab booking
+    - user approves plan with one tap
+  - Help Now And Plan Help Modes:
+    - Help Now:
+      - delivery
+      - cab/ride help
+      - roadside help
+      - emergency cleaning
+      - personal assistance
+      - lockout
+      - urgent medicine pickup
+    - Plan Help:
+      - events
+      - shifting
+      - deep cleaning
+      - elder care
+      - maintenance
+      - travel
+      - temporary staffing
+  - Workable Help Radius:
+    - show available verified helpers nearby
+    - example: "22 verified helpers within 5 km. Estimated assistance time: 18 minutes"
+    - match by distance, skills, vehicle, language, equipment, reliability, safety verification, workload, and past similar tasks
+  - Provider-Type Expansion:
+    - support different provider types:
+      - individual helpers
+      - skilled professionals
+      - drivers
+      - delivery partners
+      - local shops
+      - clinics
+      - ambulance providers
+      - cab operators
+      - repair companies
+      - event vendors
+      - cleaning agencies
+      - NGOs/community partners
+    - Workable becomes the coordination layer across these providers
+  - Innovation Build Order To-Do:
+    - Phase 1 - Conversion And Growth Basics:
+      - simplify customer signup to phone/OTP, optional name, and optional location
+      - simplify worker signup into staged onboarding with profile-completion progress
+      - make referral reward admin approval screen
+      - track which customer/worker joined from which referral code
+      - improve share links so referral code is auto-filled in customer and worker signup
+    - Phase 2 - Community Demand And Campaigns:
+      - build admin campaign calendar for seasonal/community service campaigns
+      - show location-relevant campaign banners on customer dashboard
+      - add one-tap campaign booking with date/slot selection
+      - add neighbourhood group pricing and WhatsApp share
+      - expand approved demand into "I also need this" community demand board
+    - Phase 3 - Worker Trust And Motivation:
+      - track verified worker hours from accepted/start/completed job lifecycle
+      - calculate monthly achievement records
+      - introduce Verified/Silver/Gold/Diamond/Platinum badge logic
+      - show transparent badge details on worker cards and profiles
+      - generate worker milestone share cards
+      - add downloadable Workable Verified Work Record with QR verification
+      - provide recommended earning ranges instead of automatic price increases
+    - Phase 4 - Retention And Family Use:
+      - build Family Care Circle for parents, rental homes, shops, offices, and shared permissions
+      - build Workable Home Passport with service history, invoices, warranties, reminders, and Home Care Score
+      - add Gift A Service flow for family/friends
+      - add preventive reminders from previous bookings and home records
+    - Phase 5 - Local Network Expansion:
+      - create worker mini-store/public profile links with QR and safe Workable booking
+      - add Refer A Trusted Local Worker flow
+      - add Apartment Captain programme with aggregate-only privacy controls
+      - add community impact meter and sponsored local service tracking
+    - Phase 6 - AI Differentiation:
+      - AI Problem-to-Solution Camera for photo/video/voice diagnosis
+      - First-Time-Fix worker matching
+      - AI proof-of-work checklist and evidence report
+      - AI Price Truth Engine
+      - Live AI Language Bridge
+      - AI Worker Career Copilot and Worker Skill Graph
+      - AI warranty/repeat-problem investigator
+      - Autonomous Local Campaign Creator
+      - AI trust/fraud shield with human review
+      - AI family and elder-care service agent
+    - Phase 7 - Bigger Platform Model:
+      - One Request, Multiple Services package builder
+      - Help Now and Plan Help mode separation
+      - Workable Help Radius with ETA and available helper count
+      - provider-type expansion for shops, clinics, cabs, ambulances, agencies, event vendors, and community partners
+    - Implementation rule:
+      - do not build these all at once
+      - finish trust/payment/admin safety before broad viral campaigns
+      - build growth loops only after referral tracking and basic reward audit are reliable
+      - build advanced AI only after data models for bookings, help requests, worker skills, campaigns, and home records are stable
+  - AI Feature Backlog:
+    - AI Problem-to-Solution Camera:
+      - customer shows problem through photo/video/voice
+      - AI asks useful questions and creates structured job card
+      - long-term asset: proprietary Problem-Solution Dataset from completed jobs
+    - First-Time-Fix Worker Matching:
+      - rank worker by likelihood of solving specific issue on first visit
+      - factors: similar success, appliance brand, tools/parts, language, punctuality, repeat complaint rate, property type, locality, travel time
+      - customer copy should use "high match" until model is reliable
+    - AI Proof-of-Work And Quality Verification:
+      - AI-generated service checklist
+      - before/after evidence
+      - missing-step detection
+      - customer receives Workable Service Evidence Report
+      - AI assists, human confirmation remains final
+    - Workable Home Digital Twin:
+      - AI-maintained home profile from walkthrough video, invoices, warranty cards, model stickers
+      - tracks appliances, service history, warranty, previous technician, and likely requirements
+    - AI Preventive Maintenance Prediction:
+      - predicts likely service needs from appliance age, history, local weather, season, similar failures, water quality, and symptoms
+      - presented as recommendation, not guarantee
+    - AI Price Truth Engine:
+      - transparent estimate from similar local jobs
+      - checks worker quotation against local ranges and material prices
+      - supports fairness without forcing uniform pricing
+    - Live AI Language Bridge:
+      - customer/worker speak different languages
+      - app translates conversation and saves confirmed work instructions
+    - AI Worker Career Copilot:
+      - weekly worker improvement report
+      - skill suggestions based on demand
+      - voice practice simulations for customer handling
+    - Worker Skill Graph:
+      - detailed skill profile instead of only overall rating
+      - examples: fan installation expert, inverter intermediate, smart-home beginner
+      - derived from job history, evidence, category reviews, assessments, rework, supervisor verification, and training
+    - AI Warranty And Repeat-Problem Investigator:
+      - compares previous issue, evidence, materials, invoice, notes, time since service, and new complaint
+      - recommends warranty inspection or fresh issue classification
+      - human support decides disputes
+    - Autonomous Local Campaign Creator:
+      - AI analyses seasonal demand, searches, unfulfilled requests, worker availability, weather, festivals, apartment demand, and travel distance
+      - proposes local campaigns for admin approval
+    - AI Parts And Tools Prediction:
+      - suggests tools/materials before worker accepts job
+      - can support pooled purchasing when many nearby jobs need similar materials
+    - AI Trust And Fraud Shield:
+      - detects suspicious reviews, duplicate accounts, identity impersonation, stolen photos, false completion claims, collusion, abnormal cancellations, off-app payment attempts, certificate reuse, and suspicious location patterns
+      - never permanently punish only by AI; human review and appeal required
+    - AI Family And Elder-Care Service Agent:
+      - family can ask AI what maintenance/support is needed for parents' home
+      - checks Home Passport, warranties, previous issues, overdue services, and safety needs
 - Smart Demand Discovery:
   - customer searches for any job/help need
   - if category exists, show likely category and matching workers
@@ -635,6 +976,31 @@ Growth and marketplace innovation:
   - workers see new customer demand near them
   - worker can tap "I can do this" to add category/skill to profile
   - related workers get suggested opportunities based on existing skills
+- Community Need Board:
+  - local public demand board for approved customer needs by city/area
+  - examples:
+    - "3 people near Kakkanad need AC repair"
+    - "5 people near Edappally searched for pickup/drop help"
+    - "2 families need elder-care support this week"
+  - customers can tap "I also need this" to join the demand count
+  - workers can tap "I can help" to add/claim that need as a skill/opportunity
+  - users can share the need card to WhatsApp/social media to recruit workers or other customers
+  - connects to Smart Demand Discovery and Admin Demand Review:
+    - raw demand starts as private/admin-reviewed
+    - approved demand can appear publicly on the board
+    - demand should show city/category/urgency/count, not personal customer details
+  - viral reason:
+    - people share it because it solves a local problem, not because they are promoting the app
+    - workers join because they see real demand before signing up
+    - customers return because they see Workable actively building help around their area
+  - best first version:
+    - Community Need Board screen
+    - list approved demand signals by city/category
+    - buttons: "I also need this", "Share need", "I can help"
+    - simple demand count and worker interest count
+  - build timing:
+    - after admin referral reward screen and money/trust audit
+    - reuse existing Smart Demand and Worker Opportunity data instead of creating a separate demand system
 - Viral Worker Recruitment:
   - if no worker exists, customer or workers can share a demand link to WhatsApp/social media
   - share message should recruit people who can do that job into Workable
