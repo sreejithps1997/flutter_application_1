@@ -533,6 +533,198 @@ async function unlockReferralRewardForCustomer({customerId, bookingId}) {
   return batch.commit();
 }
 
+exports.reviewReferralReward = functions.https.onCall(
+  async (data, context) => {
+    const adminId = await requireCallableAdmin(context);
+    const referralId = requireCleanText(
+      data && data.referralId,
+      "Referral",
+      {min: 2, max: 160}
+    );
+    const decision = requireCleanText(data && data.decision, "Decision", {
+      min: 6,
+      max: 20,
+    });
+    const note = stringValue(data && data.note).trim().slice(0, 300);
+    const requestedAmount = Number(data && data.rewardAmount);
+
+    if (!["approved", "rejected", "credited"].includes(decision)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Decision must be approved, rejected, or credited."
+      );
+    }
+
+    const referralRef = db.collection("referrals").doc(referralId);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    let referrerId = "";
+    let referredUserId = "";
+    let rewardAmount = 0;
+    let previousRewardStatus = "";
+    let status = "";
+
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(referralRef);
+      if (!snapshot.exists) {
+        throw new functions.https.HttpsError(
+          "not-found",
+          "Referral record not found."
+        );
+      }
+
+      const referral = snapshot.data() || {};
+      referrerId = stringValue(referral.referrerId);
+      referredUserId = stringValue(referral.referredUserId);
+      previousRewardStatus = stringValue(referral.rewardStatus, "locked");
+      status = stringValue(referral.status, "tracked");
+      rewardAmount = Number(referral.rewardAmount || 0);
+      if (requestedAmount > 0 && previousRewardStatus !== "credited") {
+        rewardAmount = requestedAmount;
+      }
+
+      if (!referrerId || !referredUserId) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Referral record is missing user information."
+        );
+      }
+
+      const update = {
+        rewardAmount,
+        adminNote: note,
+        reviewedBy: adminId,
+        reviewedAt: now,
+        updatedAt: now,
+        reviewSource: "cloud_function",
+      };
+
+      const referrerRef = db.collection("users").doc(referrerId);
+      const shouldRemovePending =
+        previousRewardStatus === "ready_for_credit" ||
+        previousRewardStatus === "approved";
+
+      if (decision === "approved") {
+        if (previousRewardStatus === "credited") {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "This referral reward is already credited."
+          );
+        }
+        transaction.update(referralRef, {
+          ...update,
+          status: status === "pending_worker_onboarding" ?
+            "completed" :
+            status,
+          rewardStatus: "approved",
+          approvedBy: adminId,
+          approvedAt: now,
+        });
+        if (!shouldRemovePending && rewardAmount > 0) {
+          transaction.set(referrerRef, {
+            referralRewardPendingAmount:
+              admin.firestore.FieldValue.increment(rewardAmount),
+            updatedAt: now,
+          }, {merge: true});
+        }
+      }
+
+      if (decision === "rejected") {
+        if (previousRewardStatus === "credited") {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Credited referral rewards cannot be rejected."
+          );
+        }
+        transaction.update(referralRef, {
+          ...update,
+          rewardStatus: "rejected",
+          rejectionReason: note || "Referral reward was not approved.",
+          rejectedBy: adminId,
+          rejectedAt: now,
+        });
+        if (shouldRemovePending && rewardAmount > 0) {
+          transaction.set(referrerRef, {
+            referralRewardPendingAmount:
+              admin.firestore.FieldValue.increment(-rewardAmount),
+            updatedAt: now,
+          }, {merge: true});
+        }
+      }
+
+      if (decision === "credited") {
+        if (previousRewardStatus === "credited") {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "This referral reward is already credited."
+          );
+        }
+        if (rewardAmount <= 0) {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Reward amount must be greater than zero before crediting."
+          );
+        }
+        transaction.update(referralRef, {
+          ...update,
+          status: "reward_credited",
+          rewardStatus: "credited",
+          creditedBy: adminId,
+          creditedAt: now,
+        });
+        transaction.set(referrerRef, {
+          referralRewardPendingAmount: shouldRemovePending ?
+            admin.firestore.FieldValue.increment(-rewardAmount) :
+            admin.firestore.FieldValue.increment(0),
+          referralRewardCreditedAmount:
+            admin.firestore.FieldValue.increment(rewardAmount),
+          referralRewardCreditedCount:
+            admin.firestore.FieldValue.increment(1),
+          lastReferralCreditedAt: now,
+          updatedAt: now,
+        }, {merge: true});
+      }
+    });
+
+    const notificationTitle = decision === "credited" ?
+      "Referral reward credited" :
+      decision === "approved" ?
+        "Referral reward approved" :
+        "Referral reward rejected";
+    const notificationMessage = decision === "credited" ?
+      `Your referral reward of Rs ${rewardAmount} was credited.` :
+      decision === "approved" ?
+        `Your referral reward of Rs ${rewardAmount} was approved and is waiting for credit.` :
+        `Your referral reward was rejected${note ? `: ${note}` : "."}`;
+
+    await setUserNotification({
+      uid: referrerId,
+      notificationId: notificationIdFor([
+        "referral_reward_review",
+        referralId,
+        decision,
+      ]),
+      title: notificationTitle,
+      message: notificationMessage,
+      type: "referral_reward_review",
+      notificationCategory: "referral",
+      status: decision,
+      requiresAction: false,
+      metadata: {
+        referralId,
+        referredUserId,
+        rewardAmount: String(rewardAmount),
+        userRole: "customer",
+      },
+    });
+
+    return {
+      referralId,
+      status: decision,
+      rewardAmount,
+    };
+  }
+);
+
 async function workerIdsForCategory(categoryName) {
   const workerIds = new Set();
   const skillsSnapshot = await db

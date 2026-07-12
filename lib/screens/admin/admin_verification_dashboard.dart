@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:workable/core/theme/workable_design.dart';
 import 'package:workable/features/admin_demand/presentation/admin_demand_review_screen.dart';
+import 'package:workable/features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'package:workable/screens/admin/admin_payout_review_screen.dart';
 import 'package:workable/screens/admin/admin_payment_review_screen.dart';
 import 'package:workable/screens/admin/verification_review_screen.dart';
@@ -62,6 +63,13 @@ class _AdminVerificationDashboardState
             icon: const Icon(LucideIcons.radar),
             onPressed: () {
               Navigator.pushNamed(context, AdminDemandReviewScreen.routeName);
+            },
+          ),
+          IconButton(
+            tooltip: 'Referral rewards',
+            icon: const Icon(LucideIcons.badgePercent),
+            onPressed: () {
+              Navigator.pushNamed(context, AdminReferralRewardScreen.routeName);
             },
           ),
         ],

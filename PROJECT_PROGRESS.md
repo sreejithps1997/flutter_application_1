@@ -346,6 +346,20 @@ Smart Booking and AI tests:
   - reward audit should show rewards ready for admin credit and credited/paid history
   - referral history should list all referred people, role, reward amount, reward status, and current referral status
   - after future admin credit, reward should move out of ready-for-review totals and remain visible in history
+- Admin referral reward control:
+  - Added admin-facing referral reward screen as a clean feature module:
+    - `lib/features/admin_referrals/domain/admin_referral_reward.dart`
+    - `lib/features/admin_referrals/data/admin_referral_repository.dart`
+    - `lib/features/admin_referrals/presentation/admin_referral_providers.dart`
+    - `lib/features/admin_referrals/presentation/admin_referral_reward_screen.dart`
+  - Added `/admin-referral-rewards` route.
+  - Added admin dashboard shortcut for referral rewards.
+  - Admin can filter referral records by action-needed, ready, worker onboarding, credited, rejected, and all.
+  - Admin can approve, reject, or mark rewards credited through backend callable `reviewReferralReward`.
+  - Backend action checks the caller is admin before changing reward state.
+  - Backend updates referrer pending/credited totals and creates referral notifications.
+  - Focused Flutter analyzer passed for the new admin referral feature, route wiring, and admin dashboard.
+  - Functions deploy is still needed before the backend reward-review action works in production.
 - Referral Community Impact growth layer:
   - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
   - referral programme should show Community Impact section

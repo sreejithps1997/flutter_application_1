@@ -29,6 +29,7 @@ import 'screens/report_issue_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/generic_help_request_screen.dart';
 import 'features/admin_demand/presentation/admin_demand_review_screen.dart';
+import 'features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'features/help_requests/presentation/customer_help_request_detail_screen.dart';
 import 'features/help_requests/presentation/customer_help_requests_screen.dart';
 import 'features/help_requests/presentation/worker_help_requests_screen.dart';
@@ -432,6 +433,8 @@ class WorkableApp extends StatelessWidget {
                     const AdminVerificationDashboard(),
                 AdminDemandReviewScreen.routeName: (context) =>
                     const AdminDemandReviewScreen(),
+                AdminReferralRewardScreen.routeName: (context) =>
+                    const AdminReferralRewardScreen(),
 
                 CustomerBookingReviewScreen.routeName: (ctx) {
                   final args =
