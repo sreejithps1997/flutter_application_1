@@ -805,7 +805,7 @@ class _EarningJob {
 
   bool get isAvailableForPayout {
     return isEarned &&
-        !{'requested', 'processing', 'paid', 'rejected'}.contains(payoutStatus);
+        !{'requested', 'processing', 'paid'}.contains(payoutStatus);
   }
 
   bool get isPendingMoney {

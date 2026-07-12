@@ -199,12 +199,10 @@ service cloud.firestore {
         return signedIn() && resource.data.workerId == request.auth.uid;
       }
 
-      function isNewPayoutWorker() {
-        return signedIn() && request.resource.data.workerId == request.auth.uid;
-      }
-
       allow read: if isPayoutWorker() || isAdmin();
-      allow create: if isNewPayoutWorker() || isAdmin();
+      // Worker payout request creation now runs through Cloud Functions so the
+      // backend can recalculate eligible bookings and amount.
+      allow create: if isAdmin();
       allow update, delete: if isAdmin();
     }
 

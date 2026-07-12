@@ -258,13 +258,16 @@ Smart Booking and AI tests:
   - only enforce App Check after debug/release devices and backend flows are confirmed
 - Backend payout review consistency:
   - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
+  - worker payout request creation should call backend `createPayoutRequest`
+  - backend should recalculate eligible bookings, payout amount, and payout method instead of trusting client data
+  - Firestore rules should block normal client creation of `payoutRequests`
   - admin payout approval should call `reviewPayoutRequest`
   - backend should mark `payoutRequests/{id}.status` as `paid`
   - backend should mark all linked bookings with `payoutStatus: paid`
   - backend should create worker payout notification
   - admin payout rejection should call `reviewPayoutRequest`
   - backend should mark `payoutRequests/{id}.status` as `rejected`
-  - backend should clear linked bookings from active payout request state
+  - backend should clear linked bookings from active payout request state so corrected payout requests can include them later
   - rejected payout notification should appear for worker and require attention
 - Backend payment review consistency:
   - pending manual testing; development/deploy should be verified later on July 19 real-phone testing day
@@ -458,6 +461,9 @@ Marketplace production hardening:
   - verify worker can request payout only from own available earnings
   - verify admin approve/reject only
   - verify payout method ownership
+  - verify direct client creation of `payoutRequests` is blocked by Firestore rules
+  - verify backend-calculated payout amount matches completed paid bookings
+  - verify rejected payout jobs become available again for a corrected request
 - Booking/help lifecycle:
   - verify worker can act only on assigned jobs
   - verify customer can act only on own bookings/help requests
@@ -492,7 +498,7 @@ Resolved compatibility exception:
 - `users/{uid}/notifications` creation is now owner/admin only.
 - Added second Firestore rules batch:
   - `transactions/{transactionId}` customer/worker/admin reads, customer/admin creates, admin updates
-  - `payoutRequests/{requestId}` worker/admin reads, worker/admin creates, admin updates
+  - `payoutRequests/{requestId}` worker/admin reads, admin creates/updates after backend payout request migration
   - `reviews/{reviewId}` signed-in reads, customer/admin writes
   - `chats/{chatId}` participant/admin access
   - `chats/{chatId}/messages/{messageId}` participant access and sender-only message creation
@@ -501,6 +507,27 @@ Resolved compatibility exception:
   - `demandSignals/{signalId}` signed-in read, admin/client writes only
   - `skills/{skillId}` signed-in read, admin/client writes only
 - Deployed second rules batch successfully after removing one unused helper warning.
+
+Completed payout request backend migration:
+- Added Cloud Function `createPayoutRequest`.
+- Worker payout request creation now runs through backend:
+  - verifies authenticated worker
+  - reads worker payout method from worker profile
+  - validates UPI/bank details
+  - recalculates completed paid eligible bookings
+  - recalculates payout amount server-side
+  - rechecks eligible bookings inside a Firestore transaction before creating the request
+  - creates `payoutRequests/{id}`
+  - marks linked bookings `payoutStatus: requested`
+  - creates worker payout-request notification
+- `PayoutRequestService.createRequest` now calls `createPayoutRequest` instead of directly writing `payoutRequests` and booking payout fields.
+- Firestore rules now block direct non-admin creation of `payoutRequests`.
+- Rejected payout jobs are no longer treated as permanently unavailable in worker earnings/payout summary.
+- Focused analyzer passed for payout request service, worker earnings screen, and admin payout review screen.
+- Firestore rules dry run compiled successfully.
+- Functions syntax check and lint script passed.
+- Deploy needed:
+  - `firebase deploy --only "functions,firestore:rules"`
 
 Completed demand/skills backend migration:
 - Added Cloud Functions:
@@ -1741,9 +1768,9 @@ Files:
 
 Completed:
 - Added `PayoutRequestService`.
-- Worker can request payout from eligible completed/paid bookings.
-- Eligible bookings are marked with payout request fields.
-- Payout requests are written to `payoutRequests`.
+- Worker can request payout from eligible completed/paid bookings through backend callable `createPayoutRequest`.
+- Backend recalculates eligible bookings and marks them with payout request fields.
+- Backend writes payout requests to `payoutRequests`; normal clients are blocked from direct creation.
 - Admin payout review screen added.
 - Admin can mark payout paid.
 - Admin can reject payout.

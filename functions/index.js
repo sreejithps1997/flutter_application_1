@@ -991,6 +991,73 @@ function cacheExpiryFromNow(hours) {
   );
 }
 
+function validPayoutMethod(method, payoutDetails) {
+  if (method === "bank") {
+    return Boolean(
+      stringValue(payoutDetails.bankAccountNumber).trim() &&
+      stringValue(payoutDetails.ifsc).trim()
+    );
+  }
+  return stringValue(payoutDetails.upiId).includes("@");
+}
+
+function workerPayoutConfig(worker) {
+  const payout = worker && typeof worker.payout === "object" ?
+    worker.payout :
+    {};
+  const topLevelMethod = stringValue(worker && worker.paymentMethod).toLowerCase();
+  const method = payout.defaultMethod === "bank" || topLevelMethod === "bank" ?
+    "bank" :
+    "upi";
+
+  return {
+    method,
+    details: {
+      ...payout,
+      upiId: stringValue(payout.upiId || (worker && worker.upiId)),
+      bankAccountName: stringValue(
+        payout.bankAccountName || (worker && worker.bankAccountName)
+      ),
+      bankAccountNumber: stringValue(
+        payout.bankAccountNumber || (worker && worker.bankAccountNumber)
+      ),
+      ifsc: stringValue(payout.ifsc || (worker && worker.ifscCode)),
+    },
+  };
+}
+
+function bookingWorkerAmount(data) {
+  const candidates = [
+    data && data.price,
+    data && data.estimatedPrice,
+    data && data.amount,
+    data && data.totalAmount,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "number" && value > 0) return value;
+    const match = stringValue(value).match(/\d+(\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      if (parsed > 0) return parsed;
+    }
+  }
+  return 0;
+}
+
+function isPayoutEligibleBooking(data) {
+  const status = stringValue(data && data.status).toLowerCase();
+  const paymentStatus = stringValue(data && data.paymentStatus).toLowerCase();
+  const payoutStatus = stringValue(data && data.payoutStatus).toLowerCase();
+  const earned =
+    status === "completed" ||
+    status === "paid" ||
+    paymentStatus === "paid";
+  const activeOrPaidPayout = ["requested", "processing", "paid"].includes(
+    payoutStatus
+  );
+  return earned && !activeOrPaidPayout;
+}
+
 async function getCachedSmartDiagnosis(query) {
   const cacheKey = normalizeCacheKey(query);
   if (!cacheKey || cacheKey.length < 4) {
@@ -1625,6 +1692,147 @@ exports.suggestWorkerSignupSkill = functions.https.onCall(
     }, {merge: true});
 
     return {skill};
+  }
+);
+
+exports.createPayoutRequest = functions.https.onCall(
+  async (data, context) => {
+    const workerId = requireCallableAuth(context);
+    const requestedBookingIds = Array.isArray(data && data.bookingIds) ?
+      data.bookingIds.map((id) => stringValue(id).trim()).filter((id) => id) :
+      [];
+
+    const workerRef = db.collection("workers").doc(workerId);
+    const workerSnapshot = await workerRef.get();
+    if (!workerSnapshot.exists) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Worker profile was not found."
+      );
+    }
+
+    const payout = workerPayoutConfig(workerSnapshot.data() || {});
+    if (!validPayoutMethod(payout.method, payout.details)) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Add a valid payout method before requesting payout."
+      );
+    }
+
+    const bookingsSnapshot = await db
+      .collection("bookings")
+      .where("workerId", "==", workerId)
+      .get();
+
+    const candidateRefs = bookingsSnapshot.docs.filter((doc) => {
+      if (
+        requestedBookingIds.length > 0 &&
+        !requestedBookingIds.includes(doc.id)
+      ) {
+        return false;
+      }
+      return isPayoutEligibleBooking(doc.data() || {});
+    }).map((doc) => doc.ref);
+
+    if (candidateRefs.length === 0) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "No completed paid jobs are available for payout."
+      );
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const requestRef = db.collection("payoutRequests").doc();
+    let amount = 0;
+    let bookingIds = [];
+
+    await db.runTransaction(async (transaction) => {
+      const freshWorkerSnapshot = await transaction.get(workerRef);
+      if (!freshWorkerSnapshot.exists) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Worker profile was not found."
+        );
+      }
+
+      const freshPayout = workerPayoutConfig(freshWorkerSnapshot.data() || {});
+      if (!validPayoutMethod(freshPayout.method, freshPayout.details)) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Add a valid payout method before requesting payout."
+        );
+      }
+
+      const freshEligible = [];
+      for (const bookingRef of candidateRefs) {
+        const bookingSnapshot = await transaction.get(bookingRef);
+        if (!bookingSnapshot.exists) continue;
+        const booking = bookingSnapshot.data() || {};
+        if (stringValue(booking.workerId) !== workerId) continue;
+        if (!isPayoutEligibleBooking(booking)) continue;
+        freshEligible.push({ref: bookingRef, data: booking});
+      }
+
+      bookingIds = freshEligible.map((item) => item.ref.id);
+      amount = freshEligible.reduce(
+        (total, item) => total + bookingWorkerAmount(item.data),
+        0
+      );
+
+      if (bookingIds.length === 0 || amount <= 0) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "No completed paid jobs are available for payout."
+        );
+      }
+
+      transaction.set(requestRef, {
+        workerId,
+        amount,
+        bookingIds,
+        status: "pending",
+        payoutMethod: freshPayout.method,
+        payoutDetails: freshPayout.details,
+        requestedAt: now,
+        updatedAt: now,
+        source: "cloud_function",
+      });
+
+      freshEligible.forEach((item) => {
+        transaction.update(item.ref, {
+          payoutStatus: "requested",
+          payoutRequestId: requestRef.id,
+          payoutRequestedAt: now,
+          updatedAt: now,
+        });
+      });
+    });
+
+    await setUserNotification({
+      uid: workerId,
+      notificationId: notificationIdFor([
+        "payout_requested",
+        requestRef.id,
+      ]),
+      title: "Payout request submitted",
+      message: `Your payout request for Rs ${amount} is waiting for admin review.`,
+      type: "payout_requested",
+      notificationCategory: "payout",
+      status: "pending",
+      requiresAction: false,
+      metadata: {
+        payoutRequestId: requestRef.id,
+        workerId,
+        amount: String(amount),
+        userRole: "worker",
+      },
+    });
+
+    return {
+      payoutRequestId: requestRef.id,
+      amount,
+      bookingCount: bookingIds.length,
+    };
   }
 );
 

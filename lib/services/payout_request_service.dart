@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class PayoutSummary {
   const PayoutSummary({
@@ -23,10 +24,15 @@ class PayoutSummary {
 }
 
 class PayoutRequestService {
-  PayoutRequestService({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  PayoutRequestService({
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
   final FirebaseFirestore _firestore;
+  final FirebaseFunctions _functions;
 
   Future<PayoutSummary> loadSummary(String workerId) async {
     final workerDoc = await _firestore
@@ -69,7 +75,6 @@ class PayoutRequestService {
         'requested',
         'processing',
         'paid',
-        'rejected',
       }.contains(payoutStatus);
       return earned && !alreadyRequested;
     }).toList();
@@ -98,33 +103,11 @@ class PayoutRequestService {
       throw StateError('No completed paid jobs are available for payout.');
     }
 
-    final now = FieldValue.serverTimestamp();
-    final requestRef = _firestore.collection('payoutRequests').doc();
-    final batch = _firestore.batch();
-
-    batch.set(requestRef, {
-      'workerId': workerId,
-      'amount': summary.availableAmount,
+    final result = await _functions.httpsCallable('createPayoutRequest').call({
       'bookingIds': summary.availableBookingIds,
-      'status': 'pending',
-      'payoutMethod': summary.payoutMethod,
-      'payoutDetails': summary.payoutDetails,
-      'requestedAt': now,
-      'updatedAt': now,
     });
-
-    for (final bookingId in summary.availableBookingIds) {
-      final bookingRef = _firestore.collection('bookings').doc(bookingId);
-      batch.update(bookingRef, {
-        'payoutStatus': 'requested',
-        'payoutRequestId': requestRef.id,
-        'payoutRequestedAt': now,
-        'updatedAt': now,
-      });
-    }
-
-    await batch.commit();
-    return requestRef.id;
+    final data = Map<String, dynamic>.from(result.data as Map);
+    return data['payoutRequestId']?.toString() ?? '';
   }
 
   num _amountForWorker(Map<String, dynamic> data) {
