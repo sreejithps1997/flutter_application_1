@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print, use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -10,6 +12,7 @@ import '../widgets/form_section.dart';
 import '../services/auth_service.dart';
 import '../services/referral_link_service.dart';
 import 'package:geocoding/geocoding.dart';
+import '../core/theme/workable_design.dart';
 
 class CustomerSignupScreen extends StatefulWidget {
   static const routeName = '/customer-signup';
@@ -35,6 +38,7 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _addressText;
+  bool _locationRequested = false;
 
   // OTP Verification
   String _verificationId = '';
@@ -56,7 +60,6 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchLocation();
     _prefillReferralCode();
   }
 
@@ -69,8 +72,10 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   }
 
   Future<void> _fetchLocation() async {
+    setState(() => _locationRequested = true);
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
       if (!serviceEnabled) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Please enable location services.")),
@@ -81,6 +86,7 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
+        if (!mounted) return;
         if (permission == LocationPermission.denied) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Location permission denied.")),
@@ -107,6 +113,7 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
         print("📍 Address resolved: $_addressText");
       }
 
+      if (!mounted) return;
       setState(() {});
     } catch (e) {
       print("📍 Location fetch error: $e");
@@ -223,6 +230,12 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
 
   void _handleGoogleSignup() async {
     if (_isLoading) return;
+    if (!_isPhoneVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please verify phone number first")),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
 
     final userCredential = await _authService.signInWithGoogle(
@@ -337,13 +350,15 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
 
     if (errorMessage == null) {
       final uid = _authService.currentUser?.uid;
-      if (uid != null && _currentPosition != null) {
+      if (uid != null) {
         await FirebaseFirestore.instance.collection('users').doc(uid).update({
-          'location': GeoPoint(
-            _currentPosition!.latitude,
-            _currentPosition!.longitude,
-          ),
-          'address': _addressController.text.trim(),
+          if (_currentPosition != null)
+            'location': GeoPoint(
+              _currentPosition!.latitude,
+              _currentPosition!.longitude,
+            ),
+          if (_addressController.text.trim().isNotEmpty)
+            'address': _addressController.text.trim(),
           //'phone': _phoneController.text.trim(), // ✅ NEW
           'phoneNumber': '+91${_phoneController.text.trim()}',
           'phoneVerified': true,
@@ -398,10 +413,8 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Customer Sign Up"),
-        backgroundColor: Colors.deepPurple,
-      ),
+      appBar: AppBar(title: const Text("Customer Sign Up")),
+      backgroundColor: WorkableDesign.canvas,
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Form(
@@ -412,12 +425,17 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
               const Icon(
                 Icons.person_add_alt,
                 size: 80,
-                color: Colors.deepPurple,
+                color: WorkableDesign.primary,
               ),
               const SizedBox(height: 20),
               const Text(
-                "Create your customer account",
+                "Start with phone verification",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Your address can be added later when you place the first booking.",
+                style: TextStyle(color: WorkableDesign.muted, height: 1.35),
               ),
               const SizedBox(height: 24),
               FormSection(
@@ -484,13 +502,13 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
                         ? null
                         : _sendOtp,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
+                      backgroundColor: WorkableDesign.primary,
                       minimumSize: const Size.fromHeight(50),
                     ),
                     child: _isOtpSending
                         ? const CircularProgressIndicator(color: Colors.white)
                         : Text(
-                            _isPhoneVerified ? "✓ Phone Verified" : "Send OTP",
+                            _isPhoneVerified ? "Phone Verified" : "Send OTP",
                             style: const TextStyle(color: Colors.white),
                           ),
                   ),
@@ -608,15 +626,17 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
                   TextFormField(
                     controller: _addressController,
                     decoration: const InputDecoration(
-                      labelText: "Address (auto-detected, editable)",
+                      labelText: "Address/location (optional)",
                       prefixIcon: Icon(Icons.location_on),
                       border: OutlineInputBorder(),
                     ),
                     maxLines: 2,
-                    validator: (value) =>
-                        value != null && value.trim().isNotEmpty
-                        ? null
-                        : 'Please enter your address',
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _locationRequested ? null : _fetchLocation,
+                    icon: const Icon(Icons.my_location_outlined),
+                    label: const Text("Use current location"),
                   ),
                   const SizedBox(height: 16),
 

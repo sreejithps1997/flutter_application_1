@@ -83,11 +83,6 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
       _showSnackbar('Please verify your phone number first.');
       return;
     }
-    if (_profileImage == null) {
-      _showSnackbar('Please add a clear profile photo.');
-      return;
-    }
-
     setState(() => _isLoading = true);
 
     try {
@@ -147,7 +142,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
         'phone': onboardingData.phone,
         'phoneNumber': onboardingData.phoneNumber,
         'gender': onboardingData.gender,
-        'age': onboardingData.age,
+        if (onboardingData.age > 0) 'age': onboardingData.age,
         'email': onboardingData.email,
         'profileImageUrl': profileImageUrl,
         'consent': true,
@@ -156,7 +151,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
         'createdAt': FieldValue.serverTimestamp(),
         'workerStatus': 'onboarding',
         'profileVisibility': false,
-        'visibilityBlockedReason': 'Complete onboarding and verification',
+        'visibilityBlockedReason': 'Complete profile, skills, and verification',
         'skills': [],
         'experienceLevel': '',
         'paymentMethod': '',
@@ -394,12 +389,12 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   @override
   Widget build(BuildContext context) {
     final isTest = _isTestNumber('+91${_phoneController.text.trim()}');
-    final canSubmit = !_isLoading && _isPhoneVerified && _profileImage != null;
+    final canSubmit = !_isLoading && _isPhoneVerified;
 
     return WorkerOnboardingShell(
       title: 'Create your worker account',
       subtitle:
-          'Start with a real identity, verified phone, and clear profile photo. This helps customers trust you before they book.',
+          'Start with phone verification and basic details. You can complete skills, location, payout, and verification step by step.',
       step: 1,
       totalSteps: 6,
       bottom: FilledButton(
@@ -421,11 +416,11 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
           autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             children: [
-              _buildPhotoCard(),
-              const SizedBox(height: 14),
               WorkerOnboardingCard(
                 child: Column(
                   children: [
+                    _buildProgressNote(),
+                    const SizedBox(height: 14),
                     _buildTextField(
                       controller: _fullNameController,
                       label: 'Full name',
@@ -455,7 +450,8 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
                             textInputAction: TextInputAction.next,
                             validator: (value) {
                               final age = int.tryParse(value ?? '');
-                              if (age == null) return 'Enter age';
+                              if ((value ?? '').trim().isEmpty) return null;
+                              if (age == null) return 'Enter a valid age';
                               if (age < 18 || age > 70) {
                                 return 'Age must be 18-70';
                               }
@@ -484,6 +480,8 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 14),
+              _buildPhotoCard(),
               const SizedBox(height: 14),
               WorkerOnboardingCard(
                 child: Column(
@@ -581,6 +579,37 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
             ),
           ),
           TextButton(onPressed: _pickImage, child: const Text('Add')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressNote() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: WorkableDesign.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(WorkableDesign.radius),
+        border: Border.all(
+          color: WorkableDesign.primary.withValues(alpha: 0.16),
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.flag_outlined, color: WorkableDesign.primary, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Profile starts at 40%. Finish skills, service area, payout, and verification to receive bookings.',
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontSize: 12.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );

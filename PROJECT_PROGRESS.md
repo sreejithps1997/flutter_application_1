@@ -1803,9 +1803,9 @@ Completed:
 - Added shared onboarding shell:
   - `lib/widgets/worker_onboarding_shell.dart`
 - Worker account creation now collects:
-  - profile photo
+  - optional profile photo
   - full name
-  - age
+  - optional age
   - gender
   - phone with OTP
   - email
@@ -1865,6 +1865,31 @@ Files:
 - `lib/screens/worker_signup/step5_verify_screen.dart`
 - `lib/models/worker_onboarding_data.dart`
 - `lib/widgets/worker_onboarding_shell.dart`
+
+## Simplified Signup Polish
+
+Completed:
+- Customer signup no longer requests location automatically when the page opens.
+- Customer address/location is optional during signup and can be added later during booking.
+- Customer phone/referral data now saves even when the customer skips location.
+- Google customer signup now requires verified phone first so phone and referral audit stay reliable.
+- Customer signup visual polish started:
+  - removed old deep-purple styling from the app bar and main icon
+  - changed copy toward fast phone-first onboarding
+  - kept the current email/password backend path intact until deeper auth architecture migration
+- Worker signup no longer blocks account creation on profile photo.
+- Worker age is no longer a hard first-step field; if entered, it must still be valid.
+- Worker signup now communicates staged progress:
+  - basic profile starts first
+  - skills, service area, payout, and verification complete the profile later
+- Worker visibility gate remains protected through onboarding/verification status.
+- Focused analyzer passed for customer and worker signup screens.
+
+Next signup improvements:
+- Move customer signup logic into a clean `features/onboarding` repository/service.
+- Later replace email/password requirement with true phone-first auth if product decision confirms.
+- Add optional location permission screen after signup instead of inside the signup form.
+- Add worker profile-completion percentage from real completed sections.
 
 ## Worker Visibility
 
