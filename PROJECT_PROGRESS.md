@@ -143,6 +143,15 @@ Testing rule:
 - During development, focused analyzer checks are still required for touched files.
 - During testing phase, run these flows on real Android device/emulator with customer, worker, and admin accounts.
 
+Signup referral attribution tests:
+- Open a shared invite link with `?ref=CODE` and confirm the invite landing page saves the pending referral code.
+- Continue as customer and confirm the customer signup referral field auto-fills the saved code.
+- Complete customer signup and confirm `users/{uid}.referredByCode`, `referralStatus`, `referralSource`, and backend referral conversion are created.
+- Continue as worker and confirm the worker signup referral field auto-fills the saved code.
+- Complete worker signup and confirm worker referral attribution is saved before onboarding continues.
+- Confirm the pending referral code is consumed only after successful signup and not lost on failed validation.
+- Confirm manual referral code entry still works when no invite link was used.
+
 Admin dispute/evidence/audit tests:
 - Create or simulate a disputed booking and confirm it appears in Admin Dispute Center.
 - Mark a dispute under review and confirm `adminAuditLogs` receives a `mark_under_review` entry.
@@ -3204,6 +3213,32 @@ Completed:
   - Storage rule added and deployed for `disputeEvidence` uploads: only case participants/admins can read, only the signed-in participant can upload under their own folder
   - focused analyzer passed for `lib/features/admin_control`
 
+## Signup Referral Attribution Architecture
+
+Completed:
+- Added clean feature module:
+  - `lib/features/signup_referral/domain/signup_referral_attribution.dart`
+  - `lib/features/signup_referral/data/signup_referral_repository.dart`
+  - `lib/features/signup_referral/presentation/signup_referral_providers.dart`
+- Customer signup now uses shared referral attribution logic:
+  - normalizes referral codes consistently
+  - auto-fills pending invite code from shared link
+  - stores `referredByCode`, `referralStatus`, `referralSource`, and client capture timestamp
+  - consumes pending referral code only after successful signup
+- Worker signup now uses the same shared referral attribution logic:
+  - auto-fills invite code
+  - stores referral attribution before staged worker onboarding continues
+  - shows a clear note when invite code was filled from a shared link
+- Invite landing page now saves referral codes through the new feature repository instead of directly using the legacy service.
+- Backend referral conversion contract preserved:
+  - Cloud Function still listens to `users/{uid}.referredByCode`
+  - no backend field rename or breaking change introduced
+- Focused analyzer passed for:
+  - `lib/features/signup_referral`
+  - `lib/screens/customer_signup_screen.dart`
+  - `lib/screens/worker_signup_screen.dart`
+  - `lib/screens/referral_invite_landing_screen.dart`
+
 Admin feature improvement backlog:
 - Real dispute resolution actions:
   - first version completed: customer favor, worker favor, and partial credit decisions
@@ -3349,9 +3384,8 @@ Highest priority pending work:
    - Why this is second: payment mistakes create the fastest loss of trust.
 
 3. Simplified signup conversion
-   - Customer signup should remain almost one-tap: phone/OTP, name, location, then dashboard.
-   - Worker signup should be staged: phone/OTP, name/location, skills, profile created, verification later.
-   - Add referral-code auto-fill from shared links for both customer and worker signup.
+   - Completed enough to move on: referral-code auto-fill is shared through `features/signup_referral`, customer signup remains light, worker signup remains staged, and backend referral conversion contract is preserved.
+   - Later hardening: move more signup form state into providers and reduce customer signup fields further after phone-only login decision is finalized.
    - Why this matters: viral growth fails if signup creates friction.
 
 4. Referral and sharing growth system
@@ -3412,8 +3446,8 @@ Daily execution rule from now:
 - Avoid duplicate screens; upgrade, connect, or retire existing screens where possible.
 
 Recommended next work:
-- Product feature: simplified signup conversion with referral-code auto-fill.
-- Architecture feature: create a clean signup/referral attribution module so customer and worker onboarding share referral logic.
+- Product feature: referral/share growth screens and audit counters for customer and worker.
+- Architecture feature: expand referral feature modules so referral audit, share events, reward state, and invite links are not scattered across account screens.
 
 ## Important Reminder
 

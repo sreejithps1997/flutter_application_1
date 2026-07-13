@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme/workable_design.dart';
-import '../services/referral_link_service.dart';
+import '../features/signup_referral/data/signup_referral_repository.dart';
 import 'customer_auth_screen.dart';
 import 'worker_auth_screen.dart';
 
@@ -19,6 +19,7 @@ class ReferralInviteLandingScreen extends StatefulWidget {
 
 class _ReferralInviteLandingScreenState
     extends State<ReferralInviteLandingScreen> {
+  final _referralRepository = SignupReferralRepository();
   String? _savedCode;
 
   @override
@@ -28,9 +29,9 @@ class _ReferralInviteLandingScreenState
   }
 
   Future<void> _saveReferralCode() async {
-    final clean = ReferralLinkService.normalizeCode(widget.referralCode);
+    final clean = _referralRepository.normalizeCode(widget.referralCode);
     if (clean.isEmpty) return;
-    await ReferralLinkService.savePendingReferralCode(clean);
+    await _referralRepository.savePendingCode(clean);
     if (mounted) setState(() => _savedCode = clean);
   }
 
@@ -45,7 +46,7 @@ class _ReferralInviteLandingScreenState
   @override
   Widget build(BuildContext context) {
     final code =
-        _savedCode ?? ReferralLinkService.normalizeCode(widget.referralCode);
+        _savedCode ?? _referralRepository.normalizeCode(widget.referralCode);
 
     return Scaffold(
       backgroundColor: WorkableDesign.canvas,

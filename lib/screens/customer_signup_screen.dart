@@ -7,10 +7,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:workable/screens/customer_dashboard_screen.dart';
+import '../features/signup_referral/data/signup_referral_repository.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/form_section.dart';
 import '../services/auth_service.dart';
-import '../services/referral_link_service.dart';
 import 'package:geocoding/geocoding.dart';
 import '../core/theme/workable_design.dart';
 
@@ -34,11 +34,14 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   final _referralCodeController = TextEditingController();
 
   final AuthService _authService = AuthService();
+  final SignupReferralRepository _referralRepository =
+      SignupReferralRepository();
   Position? _currentPosition;
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _addressText;
   bool _locationRequested = false;
+  bool _referralAutoFilled = false;
 
   // OTP Verification
   String _verificationId = '';
@@ -50,10 +53,9 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   bool _isPhoneVerified = false;
 
   String? get _cleanReferralCode {
-    final clean = _referralCodeController.text
-        .trim()
-        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
-        .toUpperCase();
+    final clean = _referralRepository.normalizeCode(
+      _referralCodeController.text,
+    );
     return clean.isEmpty ? null : clean;
   }
 
@@ -64,11 +66,14 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
   }
 
   Future<void> _prefillReferralCode() async {
-    final code = await ReferralLinkService.loadPendingReferralCode();
+    final code = await _referralRepository.loadPendingCode();
     if (!mounted || code == null || _referralCodeController.text.isNotEmpty) {
       return;
     }
-    setState(() => _referralCodeController.text = code);
+    setState(() {
+      _referralCodeController.text = code;
+      _referralAutoFilled = true;
+    });
   }
 
   Future<void> _fetchLocation() async {
@@ -289,9 +294,12 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
 
           'phoneNumber': '+91${_phoneController.text.trim()}',
           'phoneVerified': true,
-          if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
-          if (_cleanReferralCode != null)
-            'referralStatus': 'pending_backend_check',
+          ..._referralRepository
+              .attributionFromInput(
+                _cleanReferralCode,
+                source: 'customer_google_signup',
+              )
+              .toUserFields(),
         });
 
         // SAVE PHONE VERIFICATION DETAILS
@@ -308,7 +316,9 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
             });
 
         if (_cleanReferralCode != null) {
-          await ReferralLinkService.consumePendingReferralCode();
+          await _referralRepository.consumePendingCodeIfMatches(
+            _cleanReferralCode,
+          );
         }
       }
 
@@ -362,12 +372,17 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
           //'phone': _phoneController.text.trim(), // ✅ NEW
           'phoneNumber': '+91${_phoneController.text.trim()}',
           'phoneVerified': true,
-          if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
-          if (_cleanReferralCode != null)
-            'referralStatus': 'pending_backend_check',
+          ..._referralRepository
+              .attributionFromInput(
+                _cleanReferralCode,
+                source: 'customer_email_signup',
+              )
+              .toUserFields(),
         });
         if (_cleanReferralCode != null) {
-          await ReferralLinkService.consumePendingReferralCode();
+          await _referralRepository.consumePendingCodeIfMatches(
+            _cleanReferralCode,
+          );
         }
       }
 
@@ -665,6 +680,17 @@ class _CustomerSignupScreenState extends State<CustomerSignupScreen> {
                       return null;
                     },
                   ),
+                  if (_referralAutoFilled) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Invite code filled automatically from your shared link.',
+                      style: TextStyle(
+                        color: WorkableDesign.success,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ),
 

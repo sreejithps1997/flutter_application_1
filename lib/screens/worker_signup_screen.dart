@@ -7,9 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/theme/workable_design.dart';
+import '../features/signup_referral/data/signup_referral_repository.dart';
 import '../models/worker_onboarding_data.dart';
 import '../services/auth_service.dart';
-import '../services/referral_link_service.dart';
 import '../widgets/worker_onboarding_shell.dart';
 import 'worker_signup/step1_profile_screen.dart';
 
@@ -31,6 +31,7 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   final _passwordController = TextEditingController();
   final _referralCodeController = TextEditingController();
   final _authService = AuthService();
+  final _referralRepository = SignupReferralRepository();
   final _picker = ImagePicker();
 
   String _selectedGender = 'Male';
@@ -45,12 +46,12 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   bool _isVerifyingOtp = false;
   bool _isPhoneVerified = false;
   bool _isTestMode = false;
+  bool _referralAutoFilled = false;
 
   String? get _cleanReferralCode {
-    final clean = _referralCodeController.text
-        .trim()
-        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
-        .toUpperCase();
+    final clean = _referralRepository.normalizeCode(
+      _referralCodeController.text,
+    );
     return clean.isEmpty ? null : clean;
   }
 
@@ -66,11 +67,14 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   }
 
   Future<void> _prefillReferralCode() async {
-    final code = await ReferralLinkService.loadPendingReferralCode();
+    final code = await _referralRepository.loadPendingCode();
     if (!mounted || code == null || _referralCodeController.text.isNotEmpty) {
       return;
     }
-    setState(() => _referralCodeController.text = code);
+    setState(() {
+      _referralCodeController.text = code;
+      _referralAutoFilled = true;
+    });
   }
 
   Future<void> _submitSignup() async {
@@ -108,12 +112,14 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'phoneNumber': '+91${_phoneController.text.trim()}',
         'phoneVerified': true,
-        if (_cleanReferralCode != null) 'referredByCode': _cleanReferralCode,
-        if (_cleanReferralCode != null)
-          'referralStatus': 'pending_backend_check',
+        ..._referralRepository
+            .attributionFromInput(_cleanReferralCode, source: 'worker_signup')
+            .toUserFields(),
       }, SetOptions(merge: true));
       if (_cleanReferralCode != null) {
-        await ReferralLinkService.consumePendingReferralCode();
+        await _referralRepository.consumePendingCodeIfMatches(
+          _cleanReferralCode,
+        );
       }
 
       final userDoc = await FirebaseFirestore.instance
@@ -763,21 +769,36 @@ class _WorkerSignupScreenState extends State<WorkerSignupScreen> {
   }
 
   Widget _buildReferralField() {
-    return _buildTextField(
-      controller: _referralCodeController,
-      label: 'Referral code (optional)',
-      icon: Icons.card_giftcard_outlined,
-      textCapitalization: TextCapitalization.characters,
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildTextField(
+          controller: _referralCodeController,
+          label: 'Referral code (optional)',
+          icon: Icons.card_giftcard_outlined,
+          textCapitalization: TextCapitalization.characters,
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+          ],
+          validator: (value) {
+            final clean = _referralRepository.normalizeCode(value);
+            if (clean.isEmpty) return null;
+            if (clean.length < 4) return 'Enter a valid referral code';
+            return null;
+          },
+        ),
+        if (_referralAutoFilled) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Invite code filled automatically from your shared link.',
+            style: TextStyle(
+              color: WorkableDesign.success,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ],
-      validator: (value) {
-        final clean =
-            value?.trim().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '') ?? '';
-        if (clean.isEmpty) return null;
-        if (clean.length < 4) return 'Enter a valid referral code';
-        return null;
-      },
     );
   }
 
