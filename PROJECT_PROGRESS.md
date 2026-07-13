@@ -3179,29 +3179,43 @@ Completed:
   - admin can save internal dispute notes
   - Admin Control Center `Disputed Bookings` and `Help Issues` cards now route to Dispute Center instead of payment review
 
-Admin remaining roadmap:
-- Add real dispute resolution actions:
-  - resolve in customer favor
-  - resolve in worker favor
-  - partial refund/platform credit
-  - request evidence from customer/worker
-- Add fraud/risk flags:
-  - repeated cancellations
-  - fake payment reports
-  - repeated dispute users/workers
-  - suspicious location/start overrides
-- Add admin role permissions:
-  - payment admin
-  - verification admin
-  - support admin
-  - super admin
-- Add operational analytics:
-  - city/category dispute rate
-  - payment review time
-  - payout pending amount
-  - verification approval/rejection rate
-- Add admin audit log:
-  - every admin action with admin id, timestamp, note, previous state, new state
+Admin feature improvement backlog:
+- Real dispute resolution actions:
+  - resolve dispute in customer favor
+  - resolve dispute in worker favor
+  - support partial refund, wallet credit, or platform coupon credit
+  - update booking/help/payment state cleanly after resolution
+  - notify customer and worker with final decision and reason
+- Evidence request flow:
+  - admin can request photos, notes, invoice, payment proof, or completion proof from customer
+  - admin can request photos, notes, arrival proof, work proof, or payment confirmation from worker
+  - evidence request should have status: requested, submitted, reviewed, expired
+  - add reminders when evidence is not submitted within the allowed time
+- Fraud and risk flags:
+  - fake or repeated payment reports
+  - repeated cancellations by customer or worker
+  - repeated disputes involving the same user, worker, phone, device, or locality
+  - suspicious worker start overrides or customer-confirmed starts
+  - repeated attempts to move payment outside Workable
+  - suspicious referral reward abuse or collusion
+- Admin role permissions:
+  - payment admin: payment reviews, refunds, credits, payout review
+  - verification admin: identity, document, police certificate, badge review
+  - support admin: disputes, evidence requests, help issues, customer support notes
+  - super admin: full access, role assignment, sensitive settings, feature flags
+  - Firestore rules and Cloud Functions should enforce role permissions, not only UI hiding
+- Admin audit log:
+  - every admin action should create an immutable audit record
+  - include admin id, admin role, action type, target collection/id, timestamp, note, previous state, and new state
+  - audit should cover payment review, payout review, verification review, dispute resolution, evidence request, fraud flag, referral reward approval, and start override
+  - admin screens should show a readable action history for each booking/help/payment/payout/referral item
+- Admin analytics:
+  - dispute rate by city, category, worker, and time period
+  - payout pending amount and payout aging
+  - average payment review time and payment rejection reasons
+  - verification approval rate, rejection rate, and review time
+  - fraud/risk flag volume and repeat offender trends
+  - admin workload metrics: pending reviews, resolved today, average handling time
 - Add direct deep links from Dispute Center to booking/help detail screens after route contracts are finalized
 
 Files:
