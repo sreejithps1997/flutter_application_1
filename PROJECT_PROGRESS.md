@@ -3295,32 +3295,115 @@ Known wider-project note:
 - Full project may still contain old legacy warnings in unrelated files.
 - We added analyzer exclude for stale nested project copy.
 
-## Next Best Work When Quota Resets
+## Current Master Priority Roadmap
 
-Priority order:
+Last refreshed after:
+- admin dispute center
+- admin control center
+- referral reward backend
+- smart demand and worker opportunity foundation
+- help request to booking/payment connection
+- AI smart booking foundation and backend quota guard
+- live arrival tracking foundation
+- worker hours/badge/certificate foundation
+- payment and payout backend consistency work
 
-1. Worker payout methods screen polish
-   - Completed.
+Current completion estimate:
+- Working marketplace MVP: 80-84%.
+- Polished first public beta: 68-72%.
+- Global/enterprise-level product: 58-63%.
 
-2. Worker active jobs screen polish
-   - Completed.
+Current strongest foundations:
+- Customer booking flow is connected end to end.
+- Worker booking flow supports accept, start, completion request, and earnings.
+- Help Requests can become normal booking/payment records.
+- Smart Demand captures missing customer needs and can notify workers.
+- Push notifications, in-app notifications, and notification tap routing are connected.
+- Worker visibility, verification, payout, badge, and certificate foundations exist.
+- Admin has control center, payment/payout review, demand review, verification review, referral reward review, and first dispute center.
+- Newer feature work is moving toward Clean Architecture + Riverpod feature modules.
 
-3. Worker job history polish
-   - Completed.
+Highest priority pending work:
 
-4. Worker professional profile polish
-   - Completed.
+1. Admin trust and safety completion
+   - Build real dispute resolution actions: customer favor, worker favor, partial refund, wallet/platform credit.
+   - Add evidence request flow for customer/worker photos, notes, payment proof, and work proof.
+   - Add fraud/risk flags for fake payments, repeated cancellations, suspicious start overrides, referral abuse, and repeated disputes.
+   - Add admin audit log for every admin action.
+   - Add role permissions: payment admin, verification admin, support admin, super admin.
+   - Why this is first: money, disputes, and admin actions are the highest trust risk before real users.
 
-5. Customer payment/detail polish
-   - Completed.
+2. Payment and payout testing/hardening
+   - Manual July 19 phone testing should cover cash, UPI report, admin approval/rejection, worker cash confirmation, payout request, payout approval/rejection, notifications, and earnings update.
+   - Add any missing backend validation discovered during testing.
+   - Why this is second: payment mistakes create the fastest loss of trust.
 
-6. Generic Help Request backbone
-   - First backbone completed.
-   - Next: worker-side open help requests list and accept flow.
+3. Simplified signup conversion
+   - Customer signup should remain almost one-tap: phone/OTP, name, location, then dashboard.
+   - Worker signup should be staged: phone/OTP, name/location, skills, profile created, verification later.
+   - Add referral-code auto-fill from shared links for both customer and worker signup.
+   - Why this matters: viral growth fails if signup creates friction.
 
-7. AI service diagnosis and smart booking assistant
-   - Customer can type/speak/upload image.
-   - AI suggests category, urgency, price range, and best workers.
+4. Referral and sharing growth system
+   - Complete referral audit screens for customer and worker.
+   - Complete admin referral reward screen and campaign logic.
+   - Add share links for app, worker profile, demand category, campaign, and referral invite.
+   - Add reward states: pending, qualified, approved, credited, rejected.
+   - Why this matters: this is the zero-cost growth engine.
+
+5. Community campaign foundation
+   - Admin campaign calendar: name, dates, location, service categories, discount, group booking rules, banner, booking limit.
+   - Customer locality campaign banners with one-tap booking/share.
+   - Neighbourhood group pricing: more nearby bookings unlock better rate.
+   - Why this matters: this creates repeat demand instead of waiting for customers to have emergencies.
+
+6. AI Smart Booking next layer
+   - Improve assistant from simple diagnosis into guided booking draft creation.
+   - AI should suggest category, urgency, price range, questions, address need, and whether to create booking or help request.
+   - Keep backend quota/cost guard active before any real paid AI usage.
+   - Why this is not first today: the trust/admin/payment foundation should be safer before increasing booking volume.
+
+7. Worker performance and trust expansion
+   - Polish worker hours tracking from start/completion timestamps.
+   - Enforce same-location start rules with customer confirmation and admin override audit.
+   - Show badge criteria and achievement history clearly.
+   - Add worker achievement sharing cards and certificate verification page later.
+   - Why this matters: it makes workers proud, improves trust, and helps customers choose.
+
+8. Feature-first Clean Architecture migration
+   - Continue using Clean Architecture + Riverpod for every new feature.
+   - Migrate old Firestore-heavy screens only when they are touched for real product work.
+   - Next good migration candidates:
+     - admin dispute/evidence/audit module
+     - signup/referral attribution module
+     - community campaigns module
+     - smart booking/booking draft module
+     - worker badge/hours module
+   - Why this approach: full-app rewrite now would slow product progress; targeted migration keeps momentum and reduces risk.
+
+9. Global readiness
+   - Real translation system, not only saved language value.
+   - Currency abstraction instead of hardcoded INR.
+   - Country/city/service-area configuration.
+   - Tax/invoice foundation.
+   - Feature flags for city-by-city launch.
+   - Privacy/data export/delete flow.
+
+10. Final UI consistency pass
+   - Audit every screen after core flows are stable.
+   - Replace remaining local styling with shared design tokens/components.
+   - Add loading skeletons, empty states, and error states where missing.
+   - Final broad UI polish should happen after trust, signup, referral, campaigns, and AI foundations are stable.
+
+Daily execution rule from now:
+- Each development day should try to complete one product feature or feature slice.
+- Each new feature must use or move toward feature-first Clean Architecture + Riverpod.
+- If a required dependency appears during work, update this roadmap immediately in the correct priority position.
+- Avoid duplicate screens; upgrade, connect, or retire existing screens where possible.
+
+Recommended next work:
+- Product feature: admin evidence request + dispute resolution actions.
+- Architecture feature: evolve `features/admin_control` into a stronger admin trust module with repository/provider boundaries for disputes, evidence, audit logs, and role checks.
 
 ## Important Reminder
 
