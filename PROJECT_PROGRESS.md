@@ -150,10 +150,12 @@ Worker badge, achievement, and certificate tests:
 - Confirm successful `Start Work` saves `startLocationVerified`, `workerStartLocation`, `startWorkDistanceMeters`, `startWorkArrivalRadiusMeters`, and location accuracy.
 - Confirm the customer receives a `Work started` notification when the worker starts work at the verified location.
 - Confirm customer can use `Confirm Arrival & Start Work` only on accepted/confirmed bookings.
+- Confirm customer booking detail clearly warns to use fallback only when the worker is physically present.
 - Confirm customer fallback start saves `startWorkManualOverride`, `startWorkInitiatedBy: customer`, and `customerConfirmedWorkerArrivedAt`.
 - Confirm admin can open `Work Start Override` from admin dashboard.
 - Confirm admin override requires both override reason and customer confirmation note.
 - Confirm admin fallback start saves `adminStartOverride`, admin id, reason, customer confirmation note, and override timestamp.
+- Confirm admin override screen shows manual-start audit history for customer/admin-started bookings.
 - Confirm worker receives notification when customer/admin starts work on their behalf.
 - Tap `Start Work` and confirm `workStartedAt` and `timeline.in_progress` are saved.
 - Tap `Request Completion` and confirm `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested` are saved.
@@ -788,6 +790,8 @@ Growth and marketplace innovation:
       - customer fallback records manual override audit fields and starts the same booking timeline
       - admin fallback screen added: `AdminWorkStartOverrideScreen`
       - admin fallback requires reason plus customer confirmation note before starting the booking
+      - admin fallback screen now shows manual-start audit details for started bookings
+      - customer fallback card now clearly warns that the worker must be physically present
       - backend notifies worker when customer/admin starts work on the worker's behalf
       - `Start Work` saves `workStartedAt` and `timeline.in_progress`
       - `Request Completion` now requires `in_progress` status and saves `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested`

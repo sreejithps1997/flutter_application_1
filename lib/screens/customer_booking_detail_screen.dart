@@ -1314,6 +1314,15 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                       "If the worker is with you but cannot start from their phone, you can confirm arrival and start the work timer.",
                       style: TextStyle(color: Color(0xFF1E3A8A), height: 1.35),
                     ),
+                    SizedBox(height: 8),
+                    Text(
+                      "Use only when the worker is physically present at your service location.",
+                      style: TextStyle(
+                        color: Color(0xFF1D4ED8),
+                        fontWeight: FontWeight.w800,
+                        height: 1.35,
+                      ),
+                    ),
                   ],
                 ),
               ),

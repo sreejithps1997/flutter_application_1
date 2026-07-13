@@ -25,7 +25,7 @@ class _AdminWorkStartOverrideScreenState
   Stream<QuerySnapshot<Map<String, dynamic>>> _waitingToStart() {
     return FirebaseFirestore.instance
         .collection('bookings')
-        .where('status', whereIn: ['confirmed', 'accepted'])
+        .where('status', whereIn: ['confirmed', 'accepted', 'in_progress'])
         .snapshots();
   }
 
@@ -213,6 +213,10 @@ class _OverrideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final createdAt = data['createdAt'];
+    final isStarted = _text(['status'], '').toLowerCase() == 'in_progress';
+    final isManualStart = data['startWorkManualOverride'] == true;
+    final adminOverride = data['adminStartOverride'] == true;
+    final startInitiatedBy = _text(['startWorkInitiatedBy'], 'worker');
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: WorkableSectionCard(
@@ -233,7 +237,9 @@ class _OverrideCard extends StatelessWidget {
                 ),
                 WorkableStatusPill(
                   label: _text(['status'], 'accepted'),
-                  color: WorkableDesign.accent,
+                  color: isStarted
+                      ? WorkableDesign.success
+                      : WorkableDesign.accent,
                 ),
               ],
             ),
@@ -253,15 +259,69 @@ class _OverrideCard extends StatelessWidget {
                   ? 'Created: ${dateFormat.format(createdAt.toDate())}'
                   : 'Booking: $bookingId',
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: busy ? null : onOverride,
-                icon: const Icon(LucideIcons.playCircle, size: 18),
-                label: Text(busy ? 'Updating...' : 'Start After Confirmation'),
+            if (isManualStart) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: WorkableDesign.warning.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(WorkableDesign.radius),
+                  border: Border.all(
+                    color: WorkableDesign.warning.withValues(alpha: 0.24),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Manual start audit',
+                      style: TextStyle(
+                        color: WorkableDesign.ink,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    WorkableInfoRow(
+                      icon: LucideIcons.userCheck,
+                      text: 'Started by: $startInitiatedBy',
+                    ),
+                    WorkableInfoRow(
+                      icon: LucideIcons.fileText,
+                      text:
+                          'Reason: ${_text(['startWorkOverrideReason', 'adminStartOverrideReason'], 'Not recorded')}',
+                    ),
+                    if (adminOverride)
+                      WorkableInfoRow(
+                        icon: LucideIcons.messageSquare,
+                        text:
+                            'Customer confirmation: ${_text(['adminStartOverrideCustomerConfirmation'], 'Not recorded')}',
+                      ),
+                    WorkableInfoRow(
+                      icon: LucideIcons.clock,
+                      text: _auditTimeLabel(),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
+            const SizedBox(height: 12),
+            if (!isStarted)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: busy ? null : onOverride,
+                  icon: const Icon(LucideIcons.playCircle, size: 18),
+                  label: Text(
+                    busy ? 'Updating...' : 'Start After Confirmation',
+                  ),
+                ),
+              )
+            else
+              const WorkableInfoRow(
+                icon: LucideIcons.checkCircle,
+                text: 'This booking has already started.',
+              ),
           ],
         ),
       ),
@@ -270,5 +330,19 @@ class _OverrideCard extends StatelessWidget {
 
   String _text(List<String> keys, String fallback) {
     return _AdminWorkStartOverrideScreenState._text(data, keys, fallback);
+  }
+
+  String _auditTimeLabel() {
+    for (final key in [
+      'adminStartOverrideAt',
+      'customerConfirmedWorkerArrivedAt',
+      'workStartedAt',
+    ]) {
+      final value = data[key];
+      if (value is Timestamp) {
+        return 'Started: ${dateFormat.format(value.toDate())}';
+      }
+    }
+    return 'Started time not recorded';
   }
 }
