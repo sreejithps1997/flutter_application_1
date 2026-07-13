@@ -172,6 +172,19 @@ class _CertificateCard extends StatelessWidget {
                 color: WorkableDesign.primary,
                 icon: LucideIcons.fileCheck,
               ),
+              if (achievement.punctualityTrackedJobs > 0)
+                WorkableStatusPill(
+                  label: '${achievement.onTimePercent}% on-time',
+                  color: WorkableDesign.warning,
+                  icon: LucideIcons.timer,
+                ),
+              ...achievement.achievementLabels.map(
+                (label) => WorkableStatusPill(
+                  label: label,
+                  color: WorkableDesign.warning,
+                  icon: LucideIcons.sparkles,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -254,6 +267,8 @@ class _CertificateCard extends StatelessWidget {
         'Completed jobs: ${achievement.completedJobs}\n'
         'Verified hours: ${achievement.verifiedHours.toStringAsFixed(1)}\n'
         'Average rating: ${achievement.averageRating.toStringAsFixed(1)}\n'
+        'On-time score: ${achievement.punctualityTrackedJobs > 0 ? '${achievement.onTimePercent}%' : 'Not enough schedule data'}\n'
+        'Achievements: ${achievement.achievementLabels.isEmpty ? 'Building history' : achievement.achievementLabels.join(', ')}\n'
         'Certificate number: ${achievement.certificateNumber}\n'
         'Verify: workable.app/certificate/${worker.workerId}';
   }

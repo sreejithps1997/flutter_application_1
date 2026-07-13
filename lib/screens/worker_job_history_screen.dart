@@ -309,6 +309,7 @@ class _HistoryCard extends StatelessWidget {
           ),
           _IconLine(icon: Icons.location_on_outlined, text: job.address),
           _IconLine(icon: Icons.payments_outlined, text: job.paymentLabel),
+          _IconLine(icon: Icons.timer_outlined, text: job.verifiedHoursLabel),
           if (job.issue.isNotEmpty)
             Container(
               width: double.infinity,
@@ -462,6 +463,44 @@ class _HistoryJob {
     return 0;
   }
 
+  String get verifiedHoursLabel {
+    final minutes = verifiedMinutes;
+    if (minutes == null) return 'Verified hours not recorded';
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    if (hours == 0) return 'Verified work: $rest min';
+    if (rest == 0) return 'Verified work: $hours hr';
+    return 'Verified work: $hours hr $rest min';
+  }
+
+  int? get verifiedMinutes {
+    final stored = _asDouble(data['verifiedWorkMinutes']);
+    if (stored > 0) return stored.round();
+    final start = _date(
+      data['workStartedAt'] ??
+          (data['timeline'] is Map ? data['timeline']['in_progress'] : null),
+    );
+    final end = _date(
+      data['workCompletedAt'] ??
+          data['completionRequestedAt'] ??
+          data['completedAt'] ??
+          data['paidAt'] ??
+          data['customerConfirmedCompletionAt'] ??
+          (data['timeline'] is Map
+              ? data['timeline']['work_completed']
+              : null) ??
+          (data['timeline'] is Map
+              ? data['timeline']['completion_requested']
+              : null) ??
+          (data['timeline'] is Map ? data['timeline']['completed'] : null) ??
+          (data['timeline'] is Map ? data['timeline']['paid'] : null),
+    );
+    if (start == null || end == null || !end.isAfter(start)) return null;
+    final minutes = end.difference(start).inMinutes;
+    if (minutes <= 0 || minutes > 16 * 60) return null;
+    return minutes;
+  }
+
   DateTime get sortDate {
     for (final key in [
       'paidAt',
@@ -501,6 +540,11 @@ class _HistoryJob {
     if (value is num) return value.toDouble();
     final match = RegExp(r'\d+(\.\d+)?').firstMatch(value?.toString() ?? '');
     return double.tryParse(match?.group(0) ?? '') ?? 0;
+  }
+
+  DateTime? _date(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    return null;
   }
 
   String _normalizeTime(String value) {

@@ -7,6 +7,7 @@ import 'package:workable/core/theme/workable_design.dart';
 import 'package:workable/widgets/workable_ui.dart';
 
 import '../domain/worker_achievement.dart';
+import 'worker_badge_criteria_screen.dart';
 import 'worker_badge_providers.dart';
 import 'worker_badge_summary_card.dart';
 
@@ -48,6 +49,15 @@ class WorkerAchievementHistoryScreen extends ConsumerWidget {
               subtitle:
                   'Your badge, verified hours, completed work, and customer trust history.',
               icon: LucideIcons.award,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pushNamed(
+                context,
+                WorkerBadgeCriteriaScreen.routeName,
+              ),
+              icon: const Icon(LucideIcons.badgeCheck, size: 18),
+              label: const Text('View Badge Criteria'),
             ),
             const SizedBox(height: 16),
             WorkerBadgeSummaryCard(workerId: workerId),
@@ -164,6 +174,14 @@ class _ShareAchievementCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (achievement.achievementLabels.isNotEmpty)
+                ...achievement.achievementLabels.map(
+                  (label) => WorkableStatusPill(
+                    label: label,
+                    color: WorkableDesign.warning,
+                    icon: LucideIcons.sparkles,
+                  ),
+                ),
               WorkableStatusPill(
                 label: '${achievement.completedJobs} jobs',
                 color: WorkableDesign.primary,
@@ -182,6 +200,12 @@ class _ShareAchievementCard extends StatelessWidget {
                 color: WorkableDesign.success,
                 icon: LucideIcons.star,
               ),
+              if (achievement.punctualityTrackedJobs > 0)
+                WorkableStatusPill(
+                  label: '${achievement.onTimePercent}% on-time',
+                  color: WorkableDesign.warning,
+                  icon: LucideIcons.timer,
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -265,6 +289,14 @@ class _AchievementTile extends StatelessWidget {
                   color: WorkableDesign.muted,
                   icon: LucideIcons.fileCheck,
                 ),
+                if (achievement.achievementLabels.isNotEmpty)
+                  ...achievement.achievementLabels.map(
+                    (label) => WorkableStatusPill(
+                      label: label,
+                      color: WorkableDesign.warning,
+                      icon: LucideIcons.sparkles,
+                    ),
+                  ),
               ],
             ),
           ],

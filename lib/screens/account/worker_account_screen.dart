@@ -428,6 +428,12 @@ class _WorkerAccountScreenState
         onTap: () => _navigateToExperienceCertificate(),
       ),
       buildMenuItem(
+        Icons.rule_outlined,
+        "Badge Criteria",
+        "How Workable trust levels are calculated",
+        onTap: () => _navigateToBadgeCriteria(),
+      ),
+      buildMenuItem(
         Icons.card_giftcard_outlined,
         "Referral Programme",
         "People joined through you",
@@ -611,6 +617,10 @@ class _WorkerAccountScreenState
 
   void _navigateToExperienceCertificate() {
     Navigator.pushNamed(context, '/worker/experience-certificate');
+  }
+
+  void _navigateToBadgeCriteria() {
+    Navigator.pushNamed(context, '/worker/badge-criteria');
   }
 
   void _navigateToReferralProgram() {

@@ -99,6 +99,14 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     );
   }
 
+  Future<void> _startWork() async {
+    await _runBookingAction(
+      (actions) => actions.startWork(widget.bookingId),
+      successMessage: 'Work started. Verified hours are now being tracked.',
+      failureMessage: 'Unable to start work.',
+    );
+  }
+
   Future<void> _confirmCashReceived() async {
     if (_isActing) return;
 
@@ -204,6 +212,8 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
           const SizedBox(height: 16),
           if (!hasVerified) _buildRestrictedCard(),
           if (!hasVerified) const SizedBox(height: 16),
+          _buildWorkHoursCard(job),
+          const SizedBox(height: 16),
           _buildActionCard(status, isCashPending),
         ],
       ),
@@ -317,6 +327,57 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     );
   }
 
+  Widget _buildWorkHoursCard(Map<String, dynamic> job) {
+    final start = _date(
+      job['workStartedAt'] ?? job['timeline']?['in_progress'],
+    );
+    final end = _date(
+      job['workCompletedAt'] ??
+          job['completionRequestedAt'] ??
+          job['completedAt'] ??
+          job['paidAt'] ??
+          job['customerConfirmedCompletionAt'] ??
+          job['timeline']?['work_completed'] ??
+          job['timeline']?['completion_requested'] ??
+          job['timeline']?['completed'] ??
+          job['timeline']?['paid'],
+    );
+    final verifiedMinutes = _verifiedMinutes(start, end);
+
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Verified work hours'),
+          const SizedBox(height: 12),
+          _DetailRow(
+            icon: LucideIcons.playCircle,
+            label: 'Started',
+            value: _formatDateTime(start),
+          ),
+          _DetailRow(
+            icon: LucideIcons.checkCircle,
+            label: 'Work completed',
+            value: _formatDateTime(end),
+          ),
+          _DetailRow(
+            icon: LucideIcons.timer,
+            label: 'Tracked time',
+            value: verifiedMinutes == null
+                ? 'Will calculate after completion'
+                : _formatDuration(verifiedMinutes),
+          ),
+          const SizedBox(height: 6),
+          const WorkableInfoRow(
+            icon: LucideIcons.shieldCheck,
+            text:
+                'Workable counts verified hours only between Start Work and Work Completed, and ignores impossible long sessions.',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRestrictedCard() {
     return WorkableSectionCard(
       color: WorkableDesign.warning.withValues(alpha: 0.08),
@@ -353,7 +414,25 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
                 ),
               ),
             ),
-          ] else if (status == 'confirmed' || status == 'in_progress') ...[
+          ] else if (status == 'confirmed' || status == 'accepted') ...[
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isActing ? null : _startWork,
+                icon: const Icon(LucideIcons.playCircle),
+                label: Text(_isActing ? 'Starting...' : 'Start Work'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isActing ? null : _declineJob,
+                icon: const Icon(LucideIcons.xCircle),
+                label: const Text('Cancel Job'),
+              ),
+            ),
+          ] else if (status == 'in_progress') ...[
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -420,6 +499,38 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
       }
     }
     return null;
+  }
+
+  DateTime? _date(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    return null;
+  }
+
+  int? _verifiedMinutes(DateTime? start, DateTime? end) {
+    if (start == null || end == null || !end.isAfter(start)) return null;
+    final minutes = end.difference(start).inMinutes;
+    if (minutes <= 0 || minutes > 16 * 60) return null;
+    return minutes;
+  }
+
+  String _formatDateTime(DateTime? value) {
+    if (value == null) return 'Not recorded yet';
+    final hour = value.hour > 12
+        ? value.hour - 12
+        : value.hour == 0
+        ? 12
+        : value.hour;
+    final minute = value.minute.toString().padLeft(2, '0');
+    final period = value.hour >= 12 ? 'PM' : 'AM';
+    return '${value.day}/${value.month}/${value.year} $hour:$minute $period';
+  }
+
+  String _formatDuration(int minutes) {
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    if (hours == 0) return '$rest min';
+    if (rest == 0) return '$hours hr';
+    return '$hours hr $rest min';
   }
 
   String _statusLabel(String status) {

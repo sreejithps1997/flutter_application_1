@@ -37,6 +37,7 @@ import 'features/help_requests/presentation/worker_help_requests_screen.dart';
 import 'features/help_requests/presentation/worker_help_request_detail_screen.dart';
 import 'features/smart_booking/presentation/smart_booking_assistant_screen.dart';
 import 'features/worker_badges/presentation/worker_achievement_history_screen.dart';
+import 'features/worker_badges/presentation/worker_badge_criteria_screen.dart';
 import 'features/worker_badges/presentation/worker_experience_certificate_screen.dart';
 import 'features/worker_opportunities/presentation/worker_opportunity_feed_screen.dart';
 
@@ -340,6 +341,8 @@ class WorkableApp extends StatelessWidget {
                     const WorkerReviewsScreen(),
                 WorkerAchievementHistoryScreen.routeName: (_) =>
                     const WorkerAchievementHistoryScreen(),
+                WorkerBadgeCriteriaScreen.routeName: (_) =>
+                    const WorkerBadgeCriteriaScreen(),
                 WorkerExperienceCertificateScreen.routeName: (_) =>
                     const WorkerExperienceCertificateScreen(),
 

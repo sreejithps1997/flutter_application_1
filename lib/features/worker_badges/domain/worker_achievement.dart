@@ -16,6 +16,8 @@ class WorkerAchievement {
     required this.reviewCount,
     required this.repeatCustomers,
     required this.onTimePercent,
+    required this.punctualityTrackedJobs,
+    required this.achievementLabels,
     required this.certificateNumber,
     this.updatedAt,
   });
@@ -32,6 +34,8 @@ class WorkerAchievement {
   final int reviewCount;
   final int repeatCustomers;
   final int onTimePercent;
+  final int punctualityTrackedJobs;
+  final List<String> achievementLabels;
   final String certificateNumber;
   final DateTime? updatedAt;
 
@@ -86,6 +90,8 @@ class WorkerAchievement {
       reviewCount: _int(data['reviewCount']),
       repeatCustomers: _int(data['repeatCustomers']),
       onTimePercent: _int(data['onTimePercent']),
+      punctualityTrackedJobs: _int(data['punctualityTrackedJobs']),
+      achievementLabels: _list(data['achievementLabels']),
       certificateNumber: _string(data['certificateNumber']),
       updatedAt: _date(data['updatedAt']),
     );
@@ -112,6 +118,16 @@ class WorkerAchievement {
   static double _double(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static List<String> _list(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 
   static DateTime? _date(dynamic value) {

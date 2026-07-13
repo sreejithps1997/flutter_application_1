@@ -24,21 +24,76 @@ class BookingActionRepository {
     });
   }
 
-  Future<void> startWork(String bookingId) {
-    return _updateBooking(bookingId, {
+  Future<void> startWork(String bookingId) async {
+    if (bookingId.trim().isEmpty) {
+      throw StateError('Booking id is required.');
+    }
+
+    final bookingRef = _firestore.collection('bookings').doc(bookingId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(bookingRef);
+      final booking = snapshot.data();
+      final status = booking?['status']?.toString().toLowerCase() ?? '';
+      if (!snapshot.exists || (status != 'confirmed' && status != 'accepted')) {
+        throw StateError('Only accepted jobs can be started.');
+      }
+
+      final data = {
+        'status': 'in_progress',
+        'workStartedAt': FieldValue.serverTimestamp(),
+        'timeline.in_progress': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      transaction.update(bookingRef, data);
+    });
+
+    final booking = (await bookingRef.get()).data();
+    await _syncSourceHelpRequest(bookingRef, {
       'status': 'in_progress',
       'workStartedAt': FieldValue.serverTimestamp(),
       'timeline.in_progress': FieldValue.serverTimestamp(),
-    });
+    }, booking);
   }
 
-  Future<void> requestCompletion(String bookingId) {
-    return _updateBooking(bookingId, {
+  Future<void> requestCompletion(String bookingId) async {
+    if (bookingId.trim().isEmpty) {
+      throw StateError('Booking id is required.');
+    }
+
+    final bookingRef = _firestore.collection('bookings').doc(bookingId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(bookingRef);
+      final booking = snapshot.data();
+      final status = booking?['status']?.toString().toLowerCase() ?? '';
+      final hasStart =
+          booking?['workStartedAt'] != null ||
+          (booking?['timeline'] is Map &&
+              (booking?['timeline'] as Map)['in_progress'] != null);
+      if (!snapshot.exists || status != 'in_progress' || !hasStart) {
+        throw StateError('Start work before requesting completion.');
+      }
+
+      final data = {
+        'status': 'completion_requested',
+        'paymentStatus': 'not_started',
+        'workCompletedAt': FieldValue.serverTimestamp(),
+        'completionRequestedAt': FieldValue.serverTimestamp(),
+        'timeline.work_completed': FieldValue.serverTimestamp(),
+        'timeline.completion_requested': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      transaction.update(bookingRef, data);
+    });
+
+    final booking = (await bookingRef.get()).data();
+    await _syncSourceHelpRequest(bookingRef, {
       'status': 'completion_requested',
       'paymentStatus': 'not_started',
+      'workCompletedAt': FieldValue.serverTimestamp(),
       'completionRequestedAt': FieldValue.serverTimestamp(),
+      'timeline.work_completed': FieldValue.serverTimestamp(),
       'timeline.completion_requested': FieldValue.serverTimestamp(),
-    });
+    }, booking);
   }
 
   Future<void> confirmCustomerCompletion(String bookingId) {

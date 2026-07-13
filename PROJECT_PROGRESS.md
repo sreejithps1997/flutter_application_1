@@ -144,11 +144,21 @@ Testing rule:
 - During testing phase, run these flows on real Android device/emulator with customer, worker, and admin accounts.
 
 Worker badge, achievement, and certificate tests:
+- Accept a worker booking and confirm the worker sees `Start Work` before `Request Completion`.
+- Tap `Start Work` and confirm `workStartedAt` and `timeline.in_progress` are saved.
+- Tap `Request Completion` and confirm `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested` are saved.
+- Confirm a worker cannot request completion before starting work.
+- Confirm job detail shows started time, completed time, and tracked work duration.
+- Confirm worker job history shows verified work duration for completed jobs.
 - Complete one worker booking and move payment to paid/completed.
 - Confirm Cloud Function updates `workers/{workerId}.workerBadge` and `badgeLevel`.
 - Confirm `workers/{workerId}/achievements/{yyyy-MM}` is created or updated.
+- Confirm impossible work sessions such as more than 16 hours are not counted as verified hours.
+- Confirm punctuality percentage appears when scheduled time/start time data is available.
+- Confirm monthly labels such as `Top worker`, `Rising professional`, or `Customer favourite` appear only when criteria are met.
 - Add a customer review for the worker and confirm rating/review totals resync.
 - Open worker account and confirm `Achievements & Badges` appears under Business.
+- Open worker account and confirm `Badge Criteria` explains Verified/Silver/Gold/Diamond/Platinum.
 - Open achievement history and confirm latest badge summary, monthly jobs, verified hours, and certificate number display.
 - Tap `Copy Share Card` and confirm achievement text is copied for WhatsApp/social sharing.
 - Open `Experience Certificate` and confirm worker name, worker ID, skills, service area, badge, jobs, hours, rating, and verification link display.
@@ -757,6 +767,21 @@ Growth and marketplace innovation:
       - monthly achievement documents are written under `workers/{workerId}/achievements/{yyyy-MM}`
       - worker profile stores `badgeLevel`, `workerBadge`, `completedJobsCount`, `averageRating`, and review totals
       - Firestore rules allow signed-in users to read worker achievement records while writes remain admin/backend controlled
+    - worker hours tracking polish completed:
+      - booking action repository now requires accepted jobs to move through `Start Work`
+      - `Start Work` saves `workStartedAt` and `timeline.in_progress`
+      - `Request Completion` now requires `in_progress` status and saves `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested`
+      - worker job detail shows start time, work completed time, and tracked work duration
+      - worker job history shows verified work duration for completed jobs
+      - backend ignores impossible verified work sessions over 16 hours
+    - badge trust upgrade completed:
+      - backend computes verified work minutes from trusted start/completion timestamps
+      - backend computes punctuality when scheduled time and start time are available
+      - backend writes punctuality tracked job count and on-time percentage into worker badge summary
+      - backend writes monthly achievement labels such as `Top worker`, `Rising professional`, `Verified hours milestone`, `Most punctual professional`, and `Customer favourite`
+      - `WorkerBadgeCriteriaScreen` added under clean worker badge feature module
+      - worker account links to `Badge Criteria`
+      - achievement history and certificate screens show punctuality and monthly achievement labels
     - worker achievement screen completed:
       - `WorkerAchievementHistoryScreen` added under clean worker badge feature module
       - shows latest badge summary, monthly achievement history, verified hours, jobs, rating, certificate number

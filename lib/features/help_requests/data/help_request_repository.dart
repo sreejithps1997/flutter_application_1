@@ -277,7 +277,9 @@ class HelpRequestRepository {
     return _updateHelpRequest(requestId, {
       'status': 'completion_requested',
       'paymentStatus': 'not_started',
+      'workCompletedAt': FieldValue.serverTimestamp(),
       'completionRequestedAt': FieldValue.serverTimestamp(),
+      'timeline.work_completed': FieldValue.serverTimestamp(),
       'timeline.completion_requested': FieldValue.serverTimestamp(),
     });
   }

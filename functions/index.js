@@ -1069,6 +1069,21 @@ function timestampToDate(value) {
   return null;
 }
 
+function parseBookingScheduledDate(booking) {
+  const direct = timestampToDate(booking.scheduledAt || booking.bookingDateTime);
+  if (direct) return direct;
+
+  const dateText = stringValue(booking.preferredDate || booking.date).trim();
+  const timeText = stringValue(booking.preferredTime || booking.time).trim();
+  if (!dateText) return null;
+
+  const parsed = new Date(`${dateText} ${timeText || "00:00"}`);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const fallback = new Date(dateText);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
 function achievementMonthKey(date = new Date()) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
@@ -1100,12 +1115,21 @@ function workerBadgeLevel({
 }
 
 function bookingVerifiedHours(booking) {
+  const storedMinutes = Number(booking.verifiedWorkMinutes);
+  if (Number.isFinite(storedMinutes) && storedMinutes > 0 && storedMinutes <= 16 * 60) {
+    return storedMinutes / 60;
+  }
+
   const timeline = booking.timeline || {};
   const start = timestampToDate(booking.workStartedAt || timeline.in_progress);
   const end = timestampToDate(
+    booking.workCompletedAt ||
+    booking.completionRequestedAt ||
     booking.completedAt ||
     booking.paidAt ||
     booking.customerConfirmedCompletionAt ||
+    timeline.work_completed ||
+    timeline.completion_requested ||
     timeline.completed ||
     timeline.paid
   );
@@ -1113,6 +1137,34 @@ function bookingVerifiedHours(booking) {
   const minutes = (end.getTime() - start.getTime()) / 60000;
   if (minutes <= 0 || minutes > 16 * 60) return 0;
   return minutes / 60;
+}
+
+function bookingVerifiedMinutes(booking) {
+  return Math.round(bookingVerifiedHours(booking) * 60);
+}
+
+function bookingOnTimeResult(booking) {
+  const scheduled = parseBookingScheduledDate(booking);
+  const started = timestampToDate(booking.workStartedAt || (booking.timeline || {}).in_progress);
+  if (!scheduled || !started) return null;
+  const delayMinutes = (started.getTime() - scheduled.getTime()) / 60000;
+  return delayMinutes <= 15;
+}
+
+function monthlyAchievementLabels({
+  monthlyCompletedJobs,
+  monthlyVerifiedHours,
+  averageRating,
+  onTimePercent,
+  completedJobs,
+}) {
+  const labels = [];
+  if (monthlyCompletedJobs >= 10 && averageRating >= 4.7) labels.push("Top worker");
+  if (monthlyCompletedJobs >= 3 && completedJobs < 25) labels.push("Rising professional");
+  if (monthlyVerifiedHours >= 40) labels.push("Verified hours milestone");
+  if (onTimePercent >= 95 && monthlyCompletedJobs >= 5) labels.push("Most punctual professional");
+  if (monthlyCompletedJobs >= 5 && averageRating >= 4.8) labels.push("Customer favourite");
+  return labels;
 }
 
 async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
@@ -1148,6 +1200,18 @@ async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
     (total, booking) => total + bookingVerifiedHours(booking),
     0
   );
+  const verifiedWorkMinutes = completedBookings.reduce(
+    (total, booking) => total + bookingVerifiedMinutes(booking),
+    0
+  );
+  const punctualityResults = completedBookings
+    .map(bookingOnTimeResult)
+    .filter((value) => value !== null);
+  const computedOnTimePercent = punctualityResults.length > 0 ?
+    Math.round(
+      (punctualityResults.filter(Boolean).length / punctualityResults.length) * 100
+    ) :
+    0;
   const customerCounts = {};
   completedBookings.forEach((booking) => {
     const customerId = stringValue(booking.customerId);
@@ -1156,7 +1220,8 @@ async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
   });
   const repeatCustomers = Object.values(customerCounts)
     .filter((count) => count > 1).length;
-  const onTimePercent = Number(worker.onTimePercent || worker.punctualityScore || 0);
+  const onTimePercent = computedOnTimePercent ||
+    Number(worker.onTimePercent || worker.punctualityScore || 0);
   const badgeLevel = workerBadgeLevel({
     completedJobs: completedBookings.length,
     verifiedHours,
@@ -1179,11 +1244,20 @@ async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
     monthlyCompletedJobs: monthlyBookings.length,
     verifiedHours: Math.round(verifiedHours * 10) / 10,
     monthlyVerifiedHours: Math.round(monthlyVerifiedHours * 10) / 10,
+    verifiedWorkMinutes,
     averageRating,
     reviewCount: ratings.length,
     repeatCustomers,
     onTimePercent,
+    punctualityTrackedJobs: punctualityResults.length,
     badgeLevel,
+    achievementLabels: monthlyAchievementLabels({
+      monthlyCompletedJobs: monthlyBookings.length,
+      monthlyVerifiedHours,
+      averageRating,
+      onTimePercent,
+      completedJobs: completedBookings.length,
+    }),
     certificateNumber: `WRK-${workerId.slice(0, 6).toUpperCase()}-${monthKey.replace("-", "")}`,
     source: "cloud_function",
     updatedAt: now,
@@ -1202,12 +1276,17 @@ async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
         reviewCount: ratings.length,
         repeatCustomers,
         onTimePercent,
+        verifiedWorkMinutes,
+        punctualityTrackedJobs: punctualityResults.length,
         updatedAt: now,
       },
       completedJobsCount: completedBookings.length,
       averageRating,
       reviewCount: ratings.length,
       totalReviews: ratings.length,
+      verifiedWorkMinutes,
+      onTimePercent,
+      punctualityTrackedJobs: punctualityResults.length,
       updatedAt: now,
     }, {merge: true}),
   ]);
