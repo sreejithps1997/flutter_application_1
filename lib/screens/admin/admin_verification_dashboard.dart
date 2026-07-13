@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:workable/core/theme/workable_design.dart';
+import 'package:workable/features/admin_control/presentation/admin_control_center_screen.dart';
 import 'package:workable/features/admin_demand/presentation/admin_demand_review_screen.dart';
 import 'package:workable/features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'package:workable/features/community_campaigns/presentation/admin_campaign_calendar_screen.dart';
@@ -46,6 +47,13 @@ class _AdminVerificationDashboardState
       appBar: AppBar(
         title: const Text('Verification Queue'),
         actions: [
+          IconButton(
+            tooltip: 'Control center',
+            icon: const Icon(LucideIcons.layoutDashboard),
+            onPressed: () {
+              Navigator.pushNamed(context, AdminControlCenterScreen.routeName);
+            },
+          ),
           IconButton(
             tooltip: 'Payment review',
             icon: const Icon(Icons.receipt_long),

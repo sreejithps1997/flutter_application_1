@@ -28,6 +28,7 @@ import 'screens/change_password_screen.dart';
 import 'screens/report_issue_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/generic_help_request_screen.dart';
+import 'features/admin_control/presentation/admin_control_center_screen.dart';
 import 'features/admin_demand/presentation/admin_demand_review_screen.dart';
 import 'features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'features/community_campaigns/presentation/admin_campaign_calendar_screen.dart';
@@ -436,6 +437,8 @@ class WorkableApp extends StatelessWidget {
                 MapPickerScreen.routeName: (ctx) => const MapPickerScreen(),
                 ForgotPasswordScreen.routeName: (_) =>
                     const ForgotPasswordScreen(),
+                AdminControlCenterScreen.routeName: (context) =>
+                    const AdminControlCenterScreen(),
                 AdminPayoutReviewScreen.routeName: (context) =>
                     const AdminPayoutReviewScreen(),
                 AdminPaymentReviewScreen.routeName: (context) =>

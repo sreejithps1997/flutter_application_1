@@ -3144,12 +3144,42 @@ Completed:
   - payment review
   - payout review
 - Worker verification review existed and worker onboarding now feeds it better through submitted status fields.
+- Admin side audit and command center completed:
+  - existing admin surfaces confirmed:
+    - payment review
+    - payout review
+    - verification queue/review
+    - demand review
+    - referral reward approval/crediting
+    - campaign calendar
+    - work-start override and audit
+  - new feature-first admin control module added:
+    - `lib/features/admin_control/domain/admin_control_summary.dart`
+    - `lib/features/admin_control/data/admin_control_repository.dart`
+    - `lib/features/admin_control/presentation/admin_control_providers.dart`
+    - `lib/features/admin_control/presentation/admin_control_center_screen.dart`
+  - Admin Control Center summarizes real Firestore counts for:
+    - payment reviews
+    - payout reviews
+    - verification queue
+    - disputed bookings
+    - work-start override/audit jobs
+    - help issues
+    - open demand signals
+    - referral rewards
+    - active community campaigns
+  - existing admin screens remain intact and are linked from the command center
+  - old verification dashboard now has a shortcut back to Admin Control Center
 
 Files:
 - `lib/screens/admin/admin_payment_review_screen.dart`
 - `lib/screens/admin/admin_payout_review_screen.dart`
 - `lib/screens/admin/admin_verification_dashboard.dart`
 - `lib/screens/admin/verification_review_screen.dart`
+- `lib/features/admin_control/domain/admin_control_summary.dart`
+- `lib/features/admin_control/data/admin_control_repository.dart`
+- `lib/features/admin_control/presentation/admin_control_providers.dart`
+- `lib/features/admin_control/presentation/admin_control_center_screen.dart`
 
 ## Verification / Analyzer Notes
 
