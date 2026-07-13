@@ -15,6 +15,10 @@ class AdminDisputeItem {
     required this.amount,
     required this.adminNote,
     required this.evidenceStatus,
+    required this.evidenceRequestedFrom,
+    required this.evidenceRequestNote,
+    required this.evidenceSubmissionNote,
+    required this.evidenceProofLinks,
     required this.resolutionStatus,
     required this.riskFlags,
     required this.updatedAt,
@@ -32,6 +36,10 @@ class AdminDisputeItem {
   final double amount;
   final String adminNote;
   final String evidenceStatus;
+  final String evidenceRequestedFrom;
+  final String evidenceRequestNote;
+  final String evidenceSubmissionNote;
+  final List<String> evidenceProofLinks;
   final String resolutionStatus;
   final List<String> riskFlags;
   final DateTime? updatedAt;
@@ -65,6 +73,10 @@ class AdminDisputeItem {
       amount: _amount(data),
       adminNote: _text(data, ['adminDisputeNote', 'adminNote'], ''),
       evidenceStatus: _text(data, ['evidenceStatus'], ''),
+      evidenceRequestedFrom: _text(data, ['evidenceRequestedFrom'], ''),
+      evidenceRequestNote: _text(data, ['evidenceRequestNote'], ''),
+      evidenceSubmissionNote: _text(data, ['evidenceSubmissionNote'], ''),
+      evidenceProofLinks: _list(data['evidenceProofLinks']),
       resolutionStatus: _text(data, ['resolutionStatus'], ''),
       riskFlags: _list(data['riskFlags']),
       updatedAt: _date(data['updatedAt'] ?? data['createdAt']),
@@ -88,6 +100,10 @@ class AdminDisputeItem {
       amount: _amount(data),
       adminNote: _text(data, ['adminDisputeNote', 'adminNote'], ''),
       evidenceStatus: _text(data, ['evidenceStatus'], ''),
+      evidenceRequestedFrom: _text(data, ['evidenceRequestedFrom'], ''),
+      evidenceRequestNote: _text(data, ['evidenceRequestNote'], ''),
+      evidenceSubmissionNote: _text(data, ['evidenceSubmissionNote'], ''),
+      evidenceProofLinks: _list(data['evidenceProofLinks']),
       resolutionStatus: _text(data, ['resolutionStatus'], ''),
       riskFlags: _list(data['riskFlags']),
       updatedAt: _date(data['updatedAt'] ?? data['createdAt']),

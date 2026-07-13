@@ -147,11 +147,14 @@ Admin dispute/evidence/audit tests:
 - Create or simulate a disputed booking and confirm it appears in Admin Dispute Center.
 - Mark a dispute under review and confirm `adminAuditLogs` receives a `mark_under_review` entry.
 - Request evidence from customer, worker, and both; confirm evidence status, requested party, request note, and audit log are saved.
+- Open `DisputeEvidenceSubmissionScreen` with booking/help arguments and confirm the correct customer/worker can submit notes, proof links, and photos.
+- Confirm evidence photos upload to `disputeEvidence/{collection}/{caseId}/{uid}` and non-participants cannot read/write those files.
 - Add each major risk flag type and confirm flags are appended without removing old flags.
 - Resolve in customer favor and confirm booking/help status, payment status, resolution note, resolved admin, and audit log are saved.
 - Resolve in worker favor and confirm booking/help status, payment status, resolution note, resolved admin, and audit log are saved.
 - Resolve with partial credit and confirm a positive credit amount is required and stored.
-- Confirm non-admin users cannot access or write admin dispute/audit data after security rules are tightened.
+- Confirm support-admin/super-admin users can perform dispute actions and other admin roles cannot.
+- Confirm non-admin users cannot access or write admin dispute/audit data.
 
 Worker badge, achievement, and certificate tests:
 - Accept a worker booking and confirm the worker sees `Start Work` before `Request Completion`.
@@ -3190,11 +3193,15 @@ Completed:
   - Admin Control Center `Disputed Bookings` and `Help Issues` cards now route to Dispute Center instead of payment review
 - Admin dispute actions upgraded:
   - admin can request evidence from customer, worker, or both
+  - customer/worker can submit requested evidence from `DisputeEvidenceSubmissionScreen`
+  - evidence submission supports notes, proof links, and photo upload to Firebase Storage
   - admin can add fraud/risk flags including fake payment, repeated cancellation, suspicious start override, repeat dispute pattern, outside payment attempt, and referral abuse
   - admin can resolve disputes in customer favor, worker favor, or partial refund/platform credit
-  - dispute cards now show evidence status, resolution status, and risk flags
+  - dispute cards now show evidence status, submitted evidence, resolution status, risk flags, and recent audit history
   - every dispute action writes an `adminAuditLogs` record with admin id, target, previous state, new state, note, and timestamp
-  - Firestore rule added and deployed for append-only `adminAuditLogs` access: admins can read/create, nobody can update/delete
+  - admin role permissions added for support-admin/super-admin dispute actions
+  - Firestore rule added and deployed for append-only `adminAuditLogs` access: authorized admins can read/create, nobody can update/delete
+  - Storage rule added and deployed for `disputeEvidence` uploads: only case participants/admins can read, only the signed-in participant can upload under their own folder
   - focused analyzer passed for `lib/features/admin_control`
 
 Admin feature improvement backlog:
@@ -3202,17 +3209,15 @@ Admin feature improvement backlog:
   - first version completed: customer favor, worker favor, and partial credit decisions
   - remaining: connect wallet credit/refund ledger and notify customer/worker with final decision
 - Evidence request flow:
-  - first version completed: admin can request evidence from customer, worker, or both with a note
-  - remaining: customer/worker upload screens, submitted/reviewed/expired states, and reminders
+  - first version completed: admin can request evidence and customer/worker can submit notes, proof links, and photos
+  - remaining: submitted/reviewed/expired state machine and reminder notifications
 - Fraud and risk flags:
   - first version completed: admin can manually add risk flags to the disputed item
   - remaining: automatic pattern detection for repeated payment reports, cancellations, disputes, outside payment attempts, and referral abuse
 - Admin role permissions:
-  - payment admin: payment reviews, refunds, credits, payout review
-  - verification admin: identity, document, police certificate, badge review
-  - support admin: disputes, evidence requests, help issues, customer support notes
-  - super admin: full access, role assignment, sensitive settings, feature flags
-  - Firestore rules and Cloud Functions should enforce role permissions, not only UI hiding
+  - first version completed: admin permission model supports payment admin, verification admin, support admin, and super admin
+  - first version completed: dispute support actions require support admin or super admin in repository/UI
+  - remaining: apply granular roles to payment review, payout review, verification review, referral rewards, and feature flags
 - Admin audit log:
   - first version completed for dispute actions: under review, note, evidence request, risk flag, and resolution
   - remaining: extend audit log to payment review, payout review, verification review, referral reward approval, and start override
@@ -3334,11 +3339,8 @@ Current strongest foundations:
 Highest priority pending work:
 
 1. Admin trust and safety completion
-   - First dispute action version is built: evidence request, manual risk flags, customer favor, worker favor, partial credit, and audit log writes.
-   - Next hardening: customer/worker evidence upload screens and submitted/reviewed/expired states.
-   - Next hardening: wallet/refund ledger, customer/worker decision notifications, and readable audit history.
-   - Next hardening: automatic fraud/risk detection for fake payments, repeated cancellations, suspicious start overrides, referral abuse, and repeated disputes.
-   - Next hardening: role permissions for payment admin, verification admin, support admin, super admin.
+   - Completed enough to move on: dispute actions, evidence requests, customer/worker evidence submission with photo upload, manual risk flags, audit logs, audit preview, and support-admin/super-admin permissions.
+   - Later hardening: submitted/reviewed/expired evidence state machine, reminders, wallet/refund ledger, customer/worker decision notifications, automatic fraud/risk detection, and granular roles for every admin module.
    - Why this is first: money, disputes, and admin actions are the highest trust risk before real users.
 
 2. Payment and payout testing/hardening
@@ -3410,8 +3412,8 @@ Daily execution rule from now:
 - Avoid duplicate screens; upgrade, connect, or retire existing screens where possible.
 
 Recommended next work:
-- Product feature: customer/worker evidence submission screens and admin evidence review states.
-- Architecture feature: split `features/admin_control` into clearer dispute, evidence, audit, analytics, and role-permission boundaries as the module grows.
+- Product feature: simplified signup conversion with referral-code auto-fill.
+- Architecture feature: create a clean signup/referral attribution module so customer and worker onboarding share referral logic.
 
 ## Important Reminder
 

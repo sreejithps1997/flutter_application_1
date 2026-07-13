@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../domain/admin_control_summary.dart';
 import '../domain/admin_dispute_item.dart';
+import '../domain/admin_permission_set.dart';
 
 class AdminControlRepository {
   AdminControlRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
@@ -67,7 +68,40 @@ class AdminControlRepository {
     });
   }
 
+  Future<AdminPermissionSet> loadPermissions() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      return const AdminPermissionSet(isAdmin: false, roles: {});
+    }
+    final snapshot = await _firestore.collection('users').doc(uid).get();
+    return AdminPermissionSet.fromData(snapshot.data());
+  }
+
+  Stream<List<Map<String, dynamic>>> watchAuditLogs(AdminDisputeItem item) {
+    return _firestore
+        .collection('adminAuditLogs')
+        .where(
+          'targetCollection',
+          isEqualTo: item.isHelpRequest ? 'helpRequests' : 'bookings',
+        )
+        .where('targetId', isEqualTo: item.id)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          final logs = snapshot.docs.map((doc) {
+            return {'id': doc.id, ...doc.data()};
+          }).toList();
+          logs.sort((a, b) {
+            final aDate = _timestampToDate(a['createdAt']);
+            final bDate = _timestampToDate(b['createdAt']);
+            return bDate.compareTo(aDate);
+          });
+          return logs;
+        });
+  }
+
   Future<void> markDisputeUnderReview(AdminDisputeItem item) async {
+    await _requireSupportAdmin();
     await _updateDispute(item, {
       'adminReviewStatus': 'under_review',
       'adminReviewStartedAt': FieldValue.serverTimestamp(),
@@ -82,6 +116,7 @@ class AdminControlRepository {
   }
 
   Future<void> saveDisputeNote(AdminDisputeItem item, String note) async {
+    await _requireSupportAdmin();
     final cleanNote = note.trim();
     if (cleanNote.isEmpty) {
       throw StateError('Admin note is required.');
@@ -104,6 +139,7 @@ class AdminControlRepository {
     required String requestedFrom,
     required String requestNote,
   }) async {
+    await _requireSupportAdmin();
     final cleanNote = requestNote.trim();
     if (cleanNote.isEmpty) {
       throw StateError('Evidence request note is required.');
@@ -133,6 +169,7 @@ class AdminControlRepository {
     required String riskFlag,
     required String note,
   }) async {
+    await _requireSupportAdmin();
     final cleanFlag = riskFlag.trim();
     final cleanNote = note.trim();
     if (cleanFlag.isEmpty || cleanNote.isEmpty) {
@@ -158,6 +195,7 @@ class AdminControlRepository {
     required String note,
     double? creditAmount,
   }) async {
+    await _requireSupportAdmin();
     final cleanNote = note.trim();
     if (cleanNote.isEmpty) {
       throw StateError('Resolution note is required.');
@@ -250,6 +288,19 @@ class AdminControlRepository {
   }
 
   String get _adminId => _auth.currentUser?.uid ?? 'unknown_admin';
+
+  Future<void> _requireSupportAdmin() async {
+    final permissions = await loadPermissions();
+    if (!permissions.canManageSupport) {
+      throw StateError('Support admin permission is required.');
+    }
+  }
+
+  DateTime _timestampToDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    return DateTime.tryParse(value?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
 
   bool _isDisputedBooking(Map<String, dynamic> data) {
     final status = data['status']?.toString().toLowerCase() ?? '';

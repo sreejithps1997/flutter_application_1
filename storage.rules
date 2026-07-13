@@ -5,6 +5,44 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function isAdmin() {
+      return signedIn() && userData().userType == 'admin';
+    }
+
+    function caseData(collection, caseId) {
+      return firestore.get(
+        /databases/(default)/documents/$(collection)/$(caseId)
+      ).data;
+    }
+
+    function isCaseParticipant(collection, caseId) {
+      return signedIn() &&
+        (
+          caseData(collection, caseId).customerId == request.auth.uid ||
+          caseData(collection, caseId).workerId == request.auth.uid ||
+          caseData(collection, caseId).acceptedWorkerId == request.auth.uid
+        );
+    }
+
+    match /disputeEvidence/{collection}/{caseId}/{uid}/{fileName} {
+      allow read: if isCaseParticipant(collection, caseId) || isAdmin();
+      allow create: if signedIn() &&
+        request.auth.uid == uid &&
+        isCaseParticipant(collection, caseId) &&
+        request.resource.size < 10 * 1024 * 1024;
+      allow update, delete: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -16,6 +16,23 @@ service cloud.firestore {
           .data.userType == 'admin';
     }
 
+    function currentUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasAdminRole(role) {
+      return isAdmin() &&
+        (
+          !('adminRole' in currentUserData()) &&
+          !('adminRoles' in currentUserData()) ||
+          currentUserData().adminRole in [role, 'super_admin'] ||
+          (
+            currentUserData().adminRoles is list &&
+            currentUserData().adminRoles.hasAny([role, 'super_admin'])
+          )
+        );
+    }
+
     // AI/Smart Help usage is owned by the backend.
     // Users may read their own allowance/usage, but cannot increase,
     // reset, or manually create usage records from the client app.
@@ -364,7 +381,9 @@ service cloud.firestore {
 
     match /adminAuditLogs/{logId} {
       allow read: if isAdmin();
-      allow create: if isAdmin();
+      allow create: if hasAdminRole('support_admin') ||
+        hasAdminRole('payment_admin') ||
+        hasAdminRole('verification_admin');
       allow update, delete: if false;
     }
 

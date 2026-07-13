@@ -16,6 +16,8 @@ class AdminDisputeCenterScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final disputes = ref.watch(adminDisputesProvider);
+    final permissions = ref.watch(adminPermissionProvider);
+    final canManageSupport = permissions.valueOrNull?.canManageSupport ?? false;
     return Scaffold(
       backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
@@ -54,8 +56,27 @@ class AdminDisputeCenterScreen extends ConsumerWidget {
                     'Review disputed bookings and help requests from one operational screen.',
                 icon: LucideIcons.alertTriangle,
               ),
+              const SizedBox(height: 10),
+              WorkableSectionCard(
+                child: WorkableInfoRow(
+                  icon: canManageSupport
+                      ? LucideIcons.shieldCheck
+                      : LucideIcons.lock,
+                  text: permissions.when(
+                    data: (value) =>
+                        'Admin role: ${value.label}. ${canManageSupport ? 'Support actions enabled.' : 'Support actions disabled.'}',
+                    loading: () => 'Checking admin role...',
+                    error: (error, _) => 'Unable to check admin role: $error',
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
-              ...items.map((item) => _DisputeCard(item: item)),
+              ...items.map(
+                (item) => _DisputeCard(
+                  item: item,
+                  canManageSupport: canManageSupport,
+                ),
+              ),
             ],
           );
         },
@@ -65,9 +86,10 @@ class AdminDisputeCenterScreen extends ConsumerWidget {
 }
 
 class _DisputeCard extends ConsumerStatefulWidget {
-  const _DisputeCard({required this.item});
+  const _DisputeCard({required this.item, required this.canManageSupport});
 
   final AdminDisputeItem item;
+  final bool canManageSupport;
 
   @override
   ConsumerState<_DisputeCard> createState() => _DisputeCardState();
@@ -220,6 +242,7 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final auditLogs = ref.watch(adminAuditLogsProvider(item));
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: WorkableSectionCard(
@@ -300,46 +323,72 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
                 icon: LucideIcons.messageSquare,
                 text: 'Admin note: ${item.adminNote}',
               ),
+            if (item.evidenceRequestNote.isNotEmpty)
+              WorkableInfoRow(
+                icon: LucideIcons.fileQuestion,
+                text:
+                    'Evidence requested from ${_label(item.evidenceRequestedFrom)}: ${item.evidenceRequestNote}',
+              ),
+            if (item.evidenceSubmissionNote.isNotEmpty)
+              WorkableInfoRow(
+                icon: LucideIcons.upload,
+                text: 'Submitted evidence: ${item.evidenceSubmissionNote}',
+              ),
+            ...item.evidenceProofLinks
+                .take(3)
+                .map(
+                  (link) => WorkableInfoRow(icon: LucideIcons.link, text: link),
+                ),
             if (item.riskFlags.isNotEmpty)
               WorkableInfoRow(
                 icon: LucideIcons.flag,
                 text: 'Risk flags: ${item.riskFlags.map(_label).join(', ')}',
               ),
+            if (!widget.canManageSupport) ...[
+              const SizedBox(height: 10),
+              const WorkableInfoRow(
+                icon: LucideIcons.lock,
+                text:
+                    'Support admin or super admin role is required for dispute actions.',
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
                 _ActionButton(
-                  onPressed: _busy ? null : _markUnderReview,
+                  onPressed: _canAct ? _markUnderReview : null,
                   icon: LucideIcons.eye,
                   label: 'Under Review',
                   outlined: true,
                 ),
                 _ActionButton(
-                  onPressed: _busy ? null : _requestEvidence,
+                  onPressed: _canAct ? _requestEvidence : null,
                   icon: LucideIcons.fileQuestion,
                   label: 'Evidence',
                   outlined: true,
                 ),
                 _ActionButton(
-                  onPressed: _busy ? null : _flagRisk,
+                  onPressed: _canAct ? _flagRisk : null,
                   icon: LucideIcons.flag,
                   label: 'Risk Flag',
                   outlined: true,
                 ),
                 _ActionButton(
-                  onPressed: _busy ? null : _addNote,
+                  onPressed: _canAct ? _addNote : null,
                   icon: LucideIcons.messageSquare,
                   label: _busy ? 'Saving...' : 'Note',
                 ),
                 _ActionButton(
-                  onPressed: _busy ? null : _resolveDispute,
+                  onPressed: _canAct ? _resolveDispute : null,
                   icon: LucideIcons.checkCircle2,
                   label: 'Resolve',
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            _AuditLogPreview(logs: auditLogs),
           ],
         ),
       ),
@@ -370,6 +419,41 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
   }
 
   String _label(String value) => value.replaceAll('_', ' ');
+
+  bool get _canAct => !_busy && widget.canManageSupport;
+}
+
+class _AuditLogPreview extends StatelessWidget {
+  const _AuditLogPreview({required this.logs});
+
+  final AsyncValue<List<Map<String, dynamic>>> logs;
+
+  @override
+  Widget build(BuildContext context) {
+    return logs.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (items) {
+        if (items.isEmpty) return const SizedBox.shrink();
+        return ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          leading: const Icon(LucideIcons.history, size: 18),
+          title: Text('Audit history (${items.length})'),
+          children: items.take(5).map((item) {
+            final action = item['action']?.toString() ?? 'admin_action';
+            final note = item['note']?.toString() ?? '';
+            final adminId = item['adminId']?.toString() ?? 'admin';
+            return WorkableInfoRow(
+              icon: LucideIcons.history,
+              text:
+                  '${action.replaceAll('_', ' ')} by $adminId${note.isEmpty ? '' : ': $note'}',
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
 }
 
 class _ActionButton extends StatelessWidget {
