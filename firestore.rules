@@ -352,6 +352,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /communityCampaigns/{campaignId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
     // Closed fallback. New collections should receive explicit rules before
     // production use.
     match /{document=**} {

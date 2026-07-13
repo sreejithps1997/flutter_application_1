@@ -924,6 +924,40 @@ Growth and marketplace innovation:
       - finish trust/payment/admin safety before broad viral campaigns
       - build growth loops only after referral tracking and basic reward audit are reliable
       - build advanced AI only after data models for bookings, help requests, worker skills, campaigns, and home records are stable
+  - Community Campaign Foundation:
+    - Added clean feature module:
+      - `lib/features/community_campaigns/domain/community_campaign.dart`
+      - `lib/features/community_campaigns/data/community_campaign_repository.dart`
+      - `lib/features/community_campaigns/presentation/admin_campaign_calendar_screen.dart`
+      - `lib/features/community_campaigns/presentation/customer_campaign_strip.dart`
+    - Added admin route `/admin-campaign-calendar`.
+    - Added admin dashboard shortcut for Campaign Calendar.
+    - Admin can create campaign records in `communityCampaigns`.
+    - Campaign records support:
+      - name
+      - message
+      - target location
+      - service categories
+      - discount label
+      - minimum bookings
+      - booking limit
+      - active/draft status
+      - joined count foundation
+    - Customer dashboard now shows active campaign banners from `communityCampaigns`.
+    - Firestore rules added:
+      - signed-in users can read campaigns
+      - only admins can create/update/delete campaigns
+    - Focused analyzer passed for campaign feature, route wiring, admin dashboard, and customer dashboard.
+    - Firestore rules dry run compiled successfully.
+    - Deploy needed:
+      - `firebase deploy --only firestore:rules`
+    - Next campaign work:
+      - one-tap campaign booking
+      - campaign share links
+      - joined-count tracking
+      - location targeting by city/apartment
+      - group discount tier unlocks
+      - admin analytics for campaign conversion
   - AI Feature Backlog:
     - AI Problem-to-Solution Camera:
       - customer shows problem through photo/video/voice
