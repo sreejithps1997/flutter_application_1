@@ -6,6 +6,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme/workable_design.dart';
+import '../features/referral_growth/data/referral_growth_repository.dart';
+import '../features/referral_growth/domain/referral_share_audit.dart';
 import '../services/referral_link_service.dart';
 import '../widgets/workable_ui.dart';
 
@@ -20,6 +22,7 @@ class ReferralProgrammeScreen extends StatefulWidget {
 }
 
 class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
+  final _growthRepository = ReferralGrowthRepository();
   bool _copied = false;
 
   String _fallbackCode(User user) {
@@ -125,28 +128,12 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final now = FieldValue.serverTimestamp();
-    final firestore = FirebaseFirestore.instance;
-    final eventRef = firestore.collection('referralShareEvents').doc();
-    final userRef = firestore.collection('users').doc(user.uid);
-
-    await firestore.runTransaction((transaction) async {
-      transaction.set(eventRef, {
-        'referrerId': user.uid,
-        'referralCode': code,
-        'channel': channel,
-        'inviteLink': _inviteLink(code),
-        'status': 'shared',
-        'createdAt': now,
-        'updatedAt': now,
-      });
-      transaction.set(userRef, {
-        'referralShareCount': FieldValue.increment(1),
-        'lastReferralShareAt': now,
-        'lastReferralShareChannel': channel,
-        'updatedAt': now,
-      }, SetOptions(merge: true));
-    });
+    await _growthRepository.trackShare(
+      uid: user.uid,
+      code: code,
+      channel: channel,
+      inviteLink: _inviteLink(code),
+    );
   }
 
   @override
@@ -182,34 +169,54 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
                     final docs = referralSnapshot.data?.docs ?? [];
                     final audit = _auditFrom(docs);
 
-                    return ListView(
-                      padding: const EdgeInsets.all(WorkableDesign.pagePadding),
-                      children: [
-                        const WorkablePageHeader(
-                          title: 'Invite trusted people',
-                          subtitle:
-                              'Share Workable when someone needs help. They get a smoother first booking, you grow the community.',
-                          icon: LucideIcons.gift,
-                        ),
-                        const SizedBox(height: 16),
-                        _buildCodeCard(code),
-                        const SizedBox(height: 16),
-                        _buildStats(audit),
-                        const SizedBox(height: 16),
-                        _buildCommunityImpact(audit),
-                        const SizedBox(height: 16),
-                        _buildRewardSummary(audit),
-                        const SizedBox(height: 16),
-                        _buildPeopleSummary(audit),
-                        const SizedBox(height: 16),
-                        _buildHowItWorks(),
-                        const SizedBox(height: 16),
-                        _buildShareCard(code),
-                        const SizedBox(height: 16),
-                        _buildHistory(audit),
-                        const SizedBox(height: 16),
-                        _buildTermsNote(),
-                      ],
+                    return StreamBuilder<ReferralShareAudit>(
+                      stream: _growthRepository.watchShareAudit(user.uid),
+                      builder: (context, shareSnapshot) {
+                        final shareAudit =
+                            shareSnapshot.data ??
+                            const ReferralShareAudit(
+                              totalShares: 0,
+                              whatsAppShares: 0,
+                              smsShares: 0,
+                              copyInviteShares: 0,
+                              copyCodeShares: 0,
+                              lastShareAt: null,
+                            );
+
+                        return ListView(
+                          padding: const EdgeInsets.all(
+                            WorkableDesign.pagePadding,
+                          ),
+                          children: [
+                            const WorkablePageHeader(
+                              title: 'Invite trusted people',
+                              subtitle:
+                                  'Share Workable when someone needs help. They get a smoother first booking, you grow the community.',
+                              icon: LucideIcons.gift,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildCodeCard(code),
+                            const SizedBox(height: 16),
+                            _buildStats(audit),
+                            const SizedBox(height: 16),
+                            _buildShareAudit(shareAudit),
+                            const SizedBox(height: 16),
+                            _buildCommunityImpact(audit),
+                            const SizedBox(height: 16),
+                            _buildRewardSummary(audit),
+                            const SizedBox(height: 16),
+                            _buildPeopleSummary(audit),
+                            const SizedBox(height: 16),
+                            _buildHowItWorks(),
+                            const SizedBox(height: 16),
+                            _buildShareCard(code),
+                            const SizedBox(height: 16),
+                            _buildHistory(audit),
+                            const SizedBox(height: 16),
+                            _buildTermsNote(),
+                          ],
+                        );
+                      },
                     );
                   },
                 );
@@ -397,6 +404,70 @@ class _ReferralProgrammeScreenState extends State<ReferralProgrammeScreen> {
           ),
           const SizedBox(height: 12),
           WorkableInfoRow(icon: LucideIcons.target, text: nextTarget),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareAudit(ReferralShareAudit audit) {
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Share audit',
+            style: TextStyle(
+              color: WorkableDesign.ink,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _rewardMetric(
+                  'Total shares',
+                  '${audit.totalShares}',
+                  WorkableDesign.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _rewardMetric(
+                  'WhatsApp',
+                  '${audit.whatsAppShares}',
+                  WorkableDesign.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _rewardMetric(
+                  'SMS',
+                  '${audit.smsShares}',
+                  WorkableDesign.accent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _rewardMetric(
+                  'Copied',
+                  '${audit.copyInviteShares + audit.copyCodeShares}',
+                  WorkableDesign.warning,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          WorkableInfoRow(
+            icon: LucideIcons.share2,
+            text: audit.hasShares
+                ? 'Every share is recorded so future campaigns can reward genuine growth.'
+                : 'Share your invite to start building your referral audit.',
+          ),
         ],
       ),
     );

@@ -152,6 +152,15 @@ Signup referral attribution tests:
 - Confirm the pending referral code is consumed only after successful signup and not lost on failed validation.
 - Confirm manual referral code entry still works when no invite link was used.
 
+Referral growth/audit tests:
+- Open Referral Programme from customer account and worker account and confirm both use the same audit screen.
+- Confirm referral code is created if missing and remains stable on refresh.
+- Tap WhatsApp share and confirm a `referralShareEvents` document is created with channel `whatsapp`.
+- Tap SMS share and confirm a `referralShareEvents` document is created with channel `sms`.
+- Copy invite and copy code, then confirm share counters update in the Share audit card.
+- Confirm Total joined, Customers, Workers, Pending, Reward audit, People joined, and Referral history match Firestore `referrals` records.
+- Confirm referral share counters are only visible for the signed-in referrer/admin through rules.
+
 Admin dispute/evidence/audit tests:
 - Create or simulate a disputed booking and confirm it appears in Admin Dispute Center.
 - Mark a dispute under review and confirm `adminAuditLogs` receives a `mark_under_review` entry.
@@ -3239,6 +3248,32 @@ Completed:
   - `lib/screens/worker_signup_screen.dart`
   - `lib/screens/referral_invite_landing_screen.dart`
 
+## Referral Growth And Share Audit
+
+Completed:
+- Existing Referral Programme screen already had strong base coverage:
+  - invite code creation
+  - WhatsApp, SMS, copy invite, and copy code actions
+  - total joined, customer joined, worker joined, pending counters
+  - reward audit
+  - people joined summary
+  - referral history
+  - customer and worker account links both route to the same referral programme screen
+- Added clean feature module:
+  - `lib/features/referral_growth/domain/referral_share_audit.dart`
+  - `lib/features/referral_growth/data/referral_growth_repository.dart`
+  - `lib/features/referral_growth/presentation/referral_growth_providers.dart`
+- Referral Programme screen now uses `ReferralGrowthRepository` for share event tracking instead of owning Firestore transaction logic.
+- Added Share audit card:
+  - total shares
+  - WhatsApp shares
+  - SMS shares
+  - copied invite/code shares
+  - growth-oriented audit note for future campaign rewards
+- Focused analyzer passed for:
+  - `lib/features/referral_growth`
+  - `lib/screens/referral_programme_screen.dart`
+
 Admin feature improvement backlog:
 - Real dispute resolution actions:
   - first version completed: customer favor, worker favor, and partial credit decisions
@@ -3389,10 +3424,8 @@ Highest priority pending work:
    - Why this matters: viral growth fails if signup creates friction.
 
 4. Referral and sharing growth system
-   - Complete referral audit screens for customer and worker.
-   - Complete admin referral reward screen and campaign logic.
-   - Add share links for app, worker profile, demand category, campaign, and referral invite.
-   - Add reward states: pending, qualified, approved, credited, rejected.
+   - Completed enough to move on: customer/worker referral programme screen, referral audit counters, share-channel counters, referral history, reward audit, and admin referral reward screen exist.
+   - Later hardening: share worker profile, demand category, and campaign invite links; campaign-based referral rewards; fraud checks for abnormal sharing/reward patterns.
    - Why this matters: this is the zero-cost growth engine.
 
 5. Community campaign foundation
@@ -3446,8 +3479,8 @@ Daily execution rule from now:
 - Avoid duplicate screens; upgrade, connect, or retire existing screens where possible.
 
 Recommended next work:
-- Product feature: referral/share growth screens and audit counters for customer and worker.
-- Architecture feature: expand referral feature modules so referral audit, share events, reward state, and invite links are not scattered across account screens.
+- Product feature: community campaign foundation for seasonal/locality group bookings.
+- Architecture feature: expand `features/community_campaigns` from admin calendar/customer strip into full campaign booking/share flow.
 
 ## Important Reminder
 
