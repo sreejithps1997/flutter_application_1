@@ -13,6 +13,7 @@ import 'package:workable/widgets/workable_ui.dart';
 
 import '../domain/admin_control_summary.dart';
 import 'admin_control_providers.dart';
+import 'admin_dispute_center_screen.dart';
 
 class AdminControlCenterScreen extends ConsumerWidget {
   static const routeName = '/admin-control-center';
@@ -101,7 +102,7 @@ class _AdminControlContent extends StatelessWidget {
         count: summary.disputedBookings,
         icon: LucideIcons.alertTriangle,
         color: WorkableDesign.danger,
-        routeName: AdminPaymentReviewScreen.routeName,
+        routeName: AdminDisputeCenterScreen.routeName,
       ),
       _ControlItem(
         title: 'Help Issues',
@@ -109,7 +110,7 @@ class _AdminControlContent extends StatelessWidget {
         count: summary.helpIssues,
         icon: Icons.volunteer_activism_outlined,
         color: WorkableDesign.warning,
-        routeName: AdminPaymentReviewScreen.routeName,
+        routeName: AdminDisputeCenterScreen.routeName,
       ),
       _ControlItem(
         title: 'Demand Review',

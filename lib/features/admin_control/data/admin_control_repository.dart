@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../domain/admin_control_summary.dart';
+import '../domain/admin_dispute_item.dart';
 
 class AdminControlRepository {
   AdminControlRepository({FirebaseFirestore? firestore})
@@ -32,6 +33,74 @@ class AdminControlRepository {
       referralRewards: results[7],
       activeCampaigns: results[8],
     );
+  }
+
+  Stream<List<AdminDisputeItem>> watchDisputes() {
+    return _firestore.collection('bookings').snapshots().asyncMap((
+      bookingSnapshot,
+    ) async {
+      final helpSnapshot = await _firestore
+          .collection('helpRequests')
+          .where(
+            'status',
+            whereIn: const [
+              'completion_disputed',
+              'payment_under_review',
+              'disputed',
+            ],
+          )
+          .get();
+      final bookingDisputes = bookingSnapshot.docs
+          .where((doc) => _isDisputedBooking(doc.data()))
+          .map(AdminDisputeItem.booking);
+      final helpDisputes = helpSnapshot.docs.map(AdminDisputeItem.helpRequest);
+      final items = [...bookingDisputes, ...helpDisputes];
+      items.sort((a, b) {
+        final aDate = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+      return items;
+    });
+  }
+
+  Future<void> markDisputeUnderReview(AdminDisputeItem item) {
+    return _updateDispute(item, {
+      'adminReviewStatus': 'under_review',
+      'adminReviewStartedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> saveDisputeNote(AdminDisputeItem item, String note) {
+    final cleanNote = note.trim();
+    if (cleanNote.isEmpty) {
+      throw StateError('Admin note is required.');
+    }
+    return _updateDispute(item, {
+      'adminDisputeNote': cleanNote,
+      'adminDisputeNoteUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateDispute(
+    AdminDisputeItem item,
+    Map<String, dynamic> data,
+  ) {
+    final collection = item.isHelpRequest ? 'helpRequests' : 'bookings';
+    return _firestore.collection(collection).doc(item.id).update(data);
+  }
+
+  bool _isDisputedBooking(Map<String, dynamic> data) {
+    final status = data['status']?.toString().toLowerCase() ?? '';
+    final paymentStatus = data['paymentStatus']?.toString().toLowerCase() ?? '';
+    return {
+          'completion_disputed',
+          'disputed',
+          'payment_under_review',
+        }.contains(status) ||
+        {'disputed', 'payment_under_review'}.contains(paymentStatus);
   }
 
   Future<int> _countBookings({String? status, List<String>? statuses}) async {

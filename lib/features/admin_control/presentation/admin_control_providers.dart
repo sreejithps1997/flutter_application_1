@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/admin_control_repository.dart';
 import '../domain/admin_control_summary.dart';
+import '../domain/admin_dispute_item.dart';
 
 final adminControlRepositoryProvider = Provider<AdminControlRepository>((ref) {
   return AdminControlRepository();
@@ -9,4 +10,8 @@ final adminControlRepositoryProvider = Provider<AdminControlRepository>((ref) {
 
 final adminControlSummaryProvider = FutureProvider<AdminControlSummary>((ref) {
   return ref.watch(adminControlRepositoryProvider).loadSummary();
+});
+
+final adminDisputesProvider = StreamProvider<List<AdminDisputeItem>>((ref) {
+  return ref.watch(adminControlRepositoryProvider).watchDisputes();
 });

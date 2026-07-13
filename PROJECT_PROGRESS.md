@@ -3170,6 +3170,39 @@ Completed:
     - active community campaigns
   - existing admin screens remain intact and are linked from the command center
   - old verification dashboard now has a shortcut back to Admin Control Center
+- Admin Dispute Center added:
+  - `lib/features/admin_control/domain/admin_dispute_item.dart`
+  - `lib/features/admin_control/presentation/admin_dispute_center_screen.dart`
+  - watches disputed bookings and help request issue states
+  - shows customer, worker, service, issue, status, amount, updated time, and admin note
+  - admin can mark an item under review
+  - admin can save internal dispute notes
+  - Admin Control Center `Disputed Bookings` and `Help Issues` cards now route to Dispute Center instead of payment review
+
+Admin remaining roadmap:
+- Add real dispute resolution actions:
+  - resolve in customer favor
+  - resolve in worker favor
+  - partial refund/platform credit
+  - request evidence from customer/worker
+- Add fraud/risk flags:
+  - repeated cancellations
+  - fake payment reports
+  - repeated dispute users/workers
+  - suspicious location/start overrides
+- Add admin role permissions:
+  - payment admin
+  - verification admin
+  - support admin
+  - super admin
+- Add operational analytics:
+  - city/category dispute rate
+  - payment review time
+  - payout pending amount
+  - verification approval/rejection rate
+- Add admin audit log:
+  - every admin action with admin id, timestamp, note, previous state, new state
+- Add direct deep links from Dispute Center to booking/help detail screens after route contracts are finalized
 
 Files:
 - `lib/screens/admin/admin_payment_review_screen.dart`
@@ -3177,9 +3210,11 @@ Files:
 - `lib/screens/admin/admin_verification_dashboard.dart`
 - `lib/screens/admin/verification_review_screen.dart`
 - `lib/features/admin_control/domain/admin_control_summary.dart`
+- `lib/features/admin_control/domain/admin_dispute_item.dart`
 - `lib/features/admin_control/data/admin_control_repository.dart`
 - `lib/features/admin_control/presentation/admin_control_providers.dart`
 - `lib/features/admin_control/presentation/admin_control_center_screen.dart`
+- `lib/features/admin_control/presentation/admin_dispute_center_screen.dart`
 
 ## Verification / Analyzer Notes
 

@@ -29,6 +29,7 @@ import 'screens/report_issue_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/generic_help_request_screen.dart';
 import 'features/admin_control/presentation/admin_control_center_screen.dart';
+import 'features/admin_control/presentation/admin_dispute_center_screen.dart';
 import 'features/admin_demand/presentation/admin_demand_review_screen.dart';
 import 'features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'features/community_campaigns/presentation/admin_campaign_calendar_screen.dart';
@@ -439,6 +440,8 @@ class WorkableApp extends StatelessWidget {
                     const ForgotPasswordScreen(),
                 AdminControlCenterScreen.routeName: (context) =>
                     const AdminControlCenterScreen(),
+                AdminDisputeCenterScreen.routeName: (context) =>
+                    const AdminDisputeCenterScreen(),
                 AdminPayoutReviewScreen.routeName: (context) =>
                     const AdminPayoutReviewScreen(),
                 AdminPaymentReviewScreen.routeName: (context) =>
