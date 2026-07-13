@@ -8,6 +8,7 @@ import 'package:workable/features/admin_referrals/presentation/admin_referral_re
 import 'package:workable/features/community_campaigns/presentation/admin_campaign_calendar_screen.dart';
 import 'package:workable/screens/admin/admin_payout_review_screen.dart';
 import 'package:workable/screens/admin/admin_payment_review_screen.dart';
+import 'package:workable/screens/admin/admin_work_start_override_screen.dart';
 import 'package:workable/screens/admin/verification_review_screen.dart';
 import 'package:workable/widgets/workable_ui.dart';
 
@@ -64,6 +65,16 @@ class _AdminVerificationDashboardState
             icon: const Icon(LucideIcons.radar),
             onPressed: () {
               Navigator.pushNamed(context, AdminDemandReviewScreen.routeName);
+            },
+          ),
+          IconButton(
+            tooltip: 'Work start override',
+            icon: const Icon(LucideIcons.playCircle),
+            onPressed: () {
+              Navigator.pushNamed(
+                context,
+                AdminWorkStartOverrideScreen.routeName,
+              );
             },
           ),
           IconButton(

@@ -121,6 +121,7 @@ import 'screens/forgot_password_screen.dart';
 import 'screens/admin/admin_payout_review_screen.dart';
 import 'screens/admin/admin_payment_review_screen.dart';
 import 'screens/admin/admin_verification_dashboard.dart';
+import 'screens/admin/admin_work_start_override_screen.dart';
 import 'screens/police_certificate_screen.dart';
 import 'core/theme/workable_design.dart';
 
@@ -441,6 +442,8 @@ class WorkableApp extends StatelessWidget {
                     const AdminPaymentReviewScreen(),
                 AdminVerificationDashboard.routeName: (context) =>
                     const AdminVerificationDashboard(),
+                AdminWorkStartOverrideScreen.routeName: (context) =>
+                    const AdminWorkStartOverrideScreen(),
                 AdminDemandReviewScreen.routeName: (context) =>
                     const AdminDemandReviewScreen(),
                 AdminReferralRewardScreen.routeName: (context) =>

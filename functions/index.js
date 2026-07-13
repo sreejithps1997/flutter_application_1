@@ -2762,6 +2762,7 @@ exports.notifyCustomerOnWorkStarted = functions.firestore
 
     const workerName = textFrom(after, ["workerName"], "Your worker");
     const service = textFrom(after, ["service", "serviceType"], "service");
+    const initiatedBy = stringValue(after.startWorkInitiatedBy, "worker");
     const distance = Number(after.startWorkDistanceMeters);
     const locationText = Number.isFinite(distance) ?
       ` Location verified within ${Math.round(distance)} m.` :
@@ -2775,8 +2776,10 @@ exports.notifyCustomerOnWorkStarted = functions.firestore
     await setUserNotification({
       uid: customerId,
       notificationId,
-      title: "Work started",
-      message: `${workerName} has started your ${service}.${locationText}`,
+      title: initiatedBy === "admin" ? "Work started by support" : "Work started",
+      message: initiatedBy === "customer" ?
+        `You confirmed ${workerName} arrived and started your ${service}.` :
+        `${workerName} has started your ${service}.${locationText}`,
       type: "booking_update",
       notificationCategory: "booking_workflow",
       status: "in_progress",
@@ -2788,6 +2791,32 @@ exports.notifyCustomerOnWorkStarted = functions.firestore
         route: "customer_booking_detail",
       },
     });
+
+    if (workerId && initiatedBy !== "worker") {
+      await setUserNotification({
+        uid: workerId,
+        notificationId: notificationIdFor([
+          "worker_work_started",
+          bookingId,
+          workerId,
+          initiatedBy,
+        ]),
+        title: "Work started",
+        message: initiatedBy === "admin" ?
+          `Support started this ${service} after customer confirmation.` :
+          `The customer confirmed your arrival and started this ${service}.`,
+        type: "booking_update",
+        notificationCategory: "booking_workflow",
+        status: "in_progress",
+        requiresAction: false,
+        metadata: {
+          bookingId,
+          workerId,
+          userRole: "worker",
+          route: "worker_job_detail",
+        },
+      });
+    }
 
     return null;
   });

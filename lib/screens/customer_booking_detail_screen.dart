@@ -126,6 +126,48 @@ class CustomerBookingDetailScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _confirmWorkerArrivedAndStart(
+    BuildContext context,
+    String bookingId,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("Start Work?"),
+        content: const Text(
+          "Use this only when the worker is physically at your service location but cannot start from their phone because of GPS, network, or device issues. This starts verified work time.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text("Cancel"),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text("Worker Arrived"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await BookingActionRepository().customerConfirmWorkerArrived(bookingId);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Work started after your confirmation."),
+          backgroundColor: WorkableDesign.success,
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Unable to start work right now.")),
+      );
+    }
+  }
+
   Future<void> _reportCompletionIssue(
     BuildContext context,
     String bookingId,
@@ -842,6 +884,12 @@ class CustomerBookingDetailScreen extends StatelessWidget {
             BookingStatusTimeline(status: status.toString()),
             const SizedBox(height: 16),
 
+            if (status.toLowerCase() == 'confirmed' ||
+                status.toLowerCase() == 'accepted') ...[
+              _buildCustomerStartWorkCard(context, bookingId),
+              const SizedBox(height: 16),
+            ],
+
             if (needsCompletionConfirmation) ...[
               _buildCompletionConfirmationCard(context, bookingId),
               const SizedBox(height: 16),
@@ -1212,6 +1260,77 @@ class CustomerBookingDetailScreen extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.red.shade700,
                 side: BorderSide(color: Colors.red.shade200),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerStartWorkCard(BuildContext context, String bookingId) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDBEAFE),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.location_on_outlined,
+                  color: WorkableDesign.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Worker arrived?",
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      "If the worker is with you but cannot start from their phone, you can confirm arrival and start the work timer.",
+                      style: TextStyle(color: Color(0xFF1E3A8A), height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () =>
+                  _confirmWorkerArrivedAndStart(context, bookingId),
+              icon: const Icon(Icons.play_circle_outline),
+              label: const Text("Confirm Arrival & Start Work"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: WorkableDesign.primary,
+                foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

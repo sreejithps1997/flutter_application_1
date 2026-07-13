@@ -107,6 +107,88 @@ class BookingActionRepository {
     }, booking);
   }
 
+  Future<void> customerConfirmWorkerArrived(String bookingId) {
+    return _startWorkWithoutGps(
+      bookingId,
+      initiatedBy: 'customer',
+      reason: 'Customer confirmed worker arrived at service location.',
+      extra: {'customerConfirmedWorkerArrivedAt': FieldValue.serverTimestamp()},
+    );
+  }
+
+  Future<void> adminOverrideStartWork(
+    String bookingId, {
+    required String adminId,
+    required String reason,
+    required String customerConfirmationNote,
+  }) {
+    final cleanReason = reason.trim();
+    final cleanNote = customerConfirmationNote.trim();
+    if (cleanReason.isEmpty) {
+      throw StateError('Admin override reason is required.');
+    }
+    if (cleanNote.isEmpty) {
+      throw StateError('Customer confirmation note is required.');
+    }
+    return _startWorkWithoutGps(
+      bookingId,
+      initiatedBy: 'admin',
+      reason: cleanReason,
+      extra: {
+        'adminStartOverride': true,
+        'adminStartOverrideBy': adminId,
+        'adminStartOverrideReason': cleanReason,
+        'adminStartOverrideCustomerConfirmation': cleanNote,
+        'adminStartOverrideAt': FieldValue.serverTimestamp(),
+      },
+    );
+  }
+
+  Future<void> _startWorkWithoutGps(
+    String bookingId, {
+    required String initiatedBy,
+    required String reason,
+    required Map<String, dynamic> extra,
+  }) async {
+    if (bookingId.trim().isEmpty) {
+      throw StateError('Booking id is required.');
+    }
+
+    final bookingRef = _firestore.collection('bookings').doc(bookingId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(bookingRef);
+      final booking = snapshot.data();
+      final status = booking?['status']?.toString().toLowerCase() ?? '';
+      if (!snapshot.exists || (status != 'confirmed' && status != 'accepted')) {
+        throw StateError('Only accepted jobs can be started.');
+      }
+
+      transaction.update(bookingRef, {
+        'status': 'in_progress',
+        'workStartedAt': FieldValue.serverTimestamp(),
+        'startLocationVerified': false,
+        'startWorkManualOverride': true,
+        'startWorkInitiatedBy': initiatedBy,
+        'startWorkOverrideReason': reason,
+        ...extra,
+        'timeline.in_progress': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+
+    final booking = (await bookingRef.get()).data();
+    await _syncSourceHelpRequest(bookingRef, {
+      'status': 'in_progress',
+      'workStartedAt': FieldValue.serverTimestamp(),
+      'startLocationVerified': false,
+      'startWorkManualOverride': true,
+      'startWorkInitiatedBy': initiatedBy,
+      'startWorkOverrideReason': reason,
+      ...extra,
+      'timeline.in_progress': FieldValue.serverTimestamp(),
+    }, booking);
+  }
+
   Future<void> requestCompletion(String bookingId) async {
     if (bookingId.trim().isEmpty) {
       throw StateError('Booking id is required.');
