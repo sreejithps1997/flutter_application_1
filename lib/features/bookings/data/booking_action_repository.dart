@@ -272,55 +272,6 @@ class BookingActionRepository {
     });
   }
 
-  Future<void> updateWorkerLiveLocation(String bookingId) async {
-    if (bookingId.trim().isEmpty) {
-      throw StateError('Booking id is required.');
-    }
-
-    final bookingRef = _firestore.collection('bookings').doc(bookingId);
-    final booking = (await bookingRef.get()).data();
-    final status = booking?['status']?.toString().toLowerCase() ?? '';
-    if (status != 'confirmed' && status != 'accepted') {
-      throw StateError('Live location is available only before work starts.');
-    }
-
-    final workerPosition = await LocationHelper.getCurrentLocation();
-    if (workerPosition == null) {
-      throw StateError(
-        'Turn on location permission and GPS to share location.',
-      );
-    }
-
-    final serviceLocation = _bookingServiceLocation(booking);
-    final distanceMeters = serviceLocation == null
-        ? null
-        : Geolocator.distanceBetween(
-            workerPosition.latitude,
-            workerPosition.longitude,
-            serviceLocation.latitude,
-            serviceLocation.longitude,
-          );
-
-    await _updateBooking(bookingId, {
-      'workerLiveLocationSharing': true,
-      'workerLiveLocation': GeoPoint(
-        workerPosition.latitude,
-        workerPosition.longitude,
-      ),
-      'workerLiveLocationAccuracy': workerPosition.accuracy,
-      if (distanceMeters != null)
-        'workerLiveDistanceToServiceMeters': distanceMeters,
-      'workerLiveLocationUpdatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> stopWorkerLiveLocation(String bookingId) {
-    return _updateBooking(bookingId, {
-      'workerLiveLocationSharing': false,
-      'workerLiveLocationStoppedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
   Future<void> _updateBooking(
     String bookingId,
     Map<String, dynamic> data,

@@ -10,6 +10,7 @@ import '../services/chat_service.dart';
 import '../widgets/booking_status_timeline.dart';
 import '../core/theme/workable_design.dart';
 import '../features/bookings/data/booking_action_repository.dart';
+import '../features/booking_tracking/presentation/booking_tracking_cards.dart';
 import 'customer_payment_screen.dart';
 
 class CustomerBookingDetailScreen extends StatelessWidget {
@@ -32,27 +33,6 @@ class CustomerBookingDetailScreen extends StatelessWidget {
   double? _asDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
-  }
-
-  DateTime? _timestampToDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
-    return null;
-  }
-
-  String _formatDateTime(DateTime value) {
-    final hour = value.hour > 12
-        ? value.hour - 12
-        : value.hour == 0
-        ? 12
-        : value.hour;
-    final minute = value.minute.toString().padLeft(2, '0');
-    final period = value.hour >= 12 ? 'PM' : 'AM';
-    return '${value.day}/${value.month}/${value.year} $hour:$minute $period';
-  }
-
-  String _formatDistance(double meters) {
-    if (meters < 1000) return '${meters.toStringAsFixed(0)} m';
-    return '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
   Future<Map<String, dynamic>?> _loadWorker(String workerId) async {
@@ -907,7 +887,7 @@ class CustomerBookingDetailScreen extends StatelessWidget {
 
             if (status.toLowerCase() == 'confirmed' ||
                 status.toLowerCase() == 'accepted') ...[
-              _buildWorkerArrivalStatusCard(booking),
+              CustomerArrivalTrackingCard(bookingId: bookingId),
               const SizedBox(height: 16),
             ],
 
@@ -1371,97 +1351,6 @@ class CustomerBookingDetailScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWorkerArrivalStatusCard(Map<String, dynamic> booking) {
-    final sharing = booking['workerLiveLocationSharing'] == true;
-    final updatedAt = _timestampToDate(booking['workerLiveLocationUpdatedAt']);
-    final distance = _asDouble(booking['workerLiveDistanceToServiceMeters']);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: WorkableDesign.accent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.near_me_outlined,
-                  color: WorkableDesign.accent,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      sharing ? "Worker is on the way" : "Arrival tracking",
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      sharing
-                          ? "The worker is sharing live arrival updates."
-                          : "The worker has not started live arrival sharing yet.",
-                      style: const TextStyle(
-                        color: WorkableDesign.muted,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (updatedAt != null || distance != null) ...[
-            const SizedBox(height: 12),
-            if (updatedAt != null)
-              _arrivalLine(
-                Icons.schedule_outlined,
-                'Last updated: ${_formatDateTime(updatedAt)}',
-              ),
-            if (distance != null)
-              _arrivalLine(
-                Icons.route_outlined,
-                'Approx. distance: ${_formatDistance(distance)}',
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _arrivalLine(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 17, color: WorkableDesign.muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(color: WorkableDesign.muted),
             ),
           ),
         ],

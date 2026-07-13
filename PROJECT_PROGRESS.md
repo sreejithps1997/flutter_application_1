@@ -804,6 +804,15 @@ Growth and marketplace innovation:
         - customer booking detail shows worker arrival status, last update, and approximate distance
         - worker can stop sharing manually
         - sharing stops automatically when work starts, completion is requested, or booking is cancelled
+      - booking tracking rearchitecture completed:
+        - new feature-first module added under `lib/features/booking_tracking`
+        - domain model: `BookingTrackingStatus`
+        - repository: `BookingTrackingRepository`
+        - Riverpod providers: `bookingTrackingRepositoryProvider`, `bookingTrackingStatusProvider`
+        - reusable UI cards: `WorkerLiveTrackingCard`, `CustomerArrivalTrackingCard`
+        - worker/customer booking detail screens now consume the tracking feature instead of owning tracking logic directly
+        - active live tracking update/stop methods moved out of `BookingActionRepository`
+        - map open helpers added through existing `url_launcher`
       - `Start Work` saves `workStartedAt` and `timeline.in_progress`
       - `Request Completion` now requires `in_progress` status and saves `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested`
       - worker job detail shows start time, work completed time, and tracked work duration
