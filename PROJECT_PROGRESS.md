@@ -143,6 +143,19 @@ Testing rule:
 - During development, focused analyzer checks are still required for touched files.
 - During testing phase, run these flows on real Android device/emulator with customer, worker, and admin accounts.
 
+Worker badge, achievement, and certificate tests:
+- Complete one worker booking and move payment to paid/completed.
+- Confirm Cloud Function updates `workers/{workerId}.workerBadge` and `badgeLevel`.
+- Confirm `workers/{workerId}/achievements/{yyyy-MM}` is created or updated.
+- Add a customer review for the worker and confirm rating/review totals resync.
+- Open worker account and confirm `Achievements & Badges` appears under Business.
+- Open achievement history and confirm latest badge summary, monthly jobs, verified hours, and certificate number display.
+- Tap `Copy Share Card` and confirm achievement text is copied for WhatsApp/social sharing.
+- Open `Experience Certificate` and confirm worker name, worker ID, skills, service area, badge, jobs, hours, rating, and verification link display.
+- Confirm certificate disclaimer clearly says it is a Workable platform record, not a government or academic certificate.
+- Confirm a non-signed-in user cannot open worker-only certificate/history screens.
+- Confirm client cannot write achievement documents directly; backend/admin only should write.
+
 Smart Booking and AI tests:
 - Smart Booking local flow:
   - customer opens Smart Booking from dashboard
@@ -737,6 +750,18 @@ Growth and marketplace innovation:
       - track punctuality from accepted/start/scheduled timestamps
       - add shareable worker milestone cards
       - add admin badge rule configuration later
+    - backend-sync implementation completed:
+      - Cloud Function helper syncs worker badge totals from paid/completed bookings and reviews
+      - sync runs when a booking reaches completed/paid payment flow
+      - sync also runs when a new review updates worker rating
+      - monthly achievement documents are written under `workers/{workerId}/achievements/{yyyy-MM}`
+      - worker profile stores `badgeLevel`, `workerBadge`, `completedJobsCount`, `averageRating`, and review totals
+      - Firestore rules allow signed-in users to read worker achievement records while writes remain admin/backend controlled
+    - worker achievement screen completed:
+      - `WorkerAchievementHistoryScreen` added under clean worker badge feature module
+      - shows latest badge summary, monthly achievement history, verified hours, jobs, rating, certificate number
+      - copyable milestone sharing card added for WhatsApp/social sharing
+      - linked from worker account as `Achievements & Badges`
   - Worker Experience Certificate:
     - downloadable "Workable Verified Work Record" or "Workable Professional Experience Certificate"
     - must not look like a government/academic certificate
@@ -756,6 +781,18 @@ Growth and marketplace innovation:
       - QR verification link
     - allow category-specific certificates so workers can share only relevant work history
     - useful for permanent jobs, contractors, salary negotiation, credibility, livelihood support, and loans
+    - first implementation completed:
+      - `WorkerExperienceCertificateScreen` added under clean worker badge feature module
+      - certificate uses backend-synced achievement history and worker profile data
+      - shows worker ID, skills, service area, badge, verified hours, completed jobs, rating, certificate number, and verification link placeholder
+      - includes clear disclaimer that it is a Workable platform record, not a government or academic certificate
+      - copy/share actions prepare certificate text for WhatsApp or other sharing
+      - linked from worker account as `Experience Certificate`
+    - next implementation:
+      - generate real downloadable PDF/image certificate
+      - add public certificate verification page and QR code
+      - allow category-specific certificates
+      - add admin controls for certificate visibility/suspension
   - Worker Wage Improvement Recommendations:
     - do not auto-increase rates only because of badge
     - show recommended range:

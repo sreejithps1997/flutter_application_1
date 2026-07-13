@@ -416,6 +416,18 @@ class _WorkerAccountScreenState
         onTap: () => _navigateToOpportunities(),
       ),
       buildMenuItem(
+        Icons.workspace_premium_outlined,
+        "Achievements & Badges",
+        "Verified hours and milestone history",
+        onTap: () => _navigateToAchievements(),
+      ),
+      buildMenuItem(
+        Icons.description_outlined,
+        "Experience Certificate",
+        "Share your verified Workable record",
+        onTap: () => _navigateToExperienceCertificate(),
+      ),
+      buildMenuItem(
         Icons.card_giftcard_outlined,
         "Referral Programme",
         "People joined through you",
@@ -591,6 +603,14 @@ class _WorkerAccountScreenState
 
   void _navigateToOpportunities() {
     Navigator.pushNamed(context, '/worker/opportunities');
+  }
+
+  void _navigateToAchievements() {
+    Navigator.pushNamed(context, '/worker/achievements');
+  }
+
+  void _navigateToExperienceCertificate() {
+    Navigator.pushNamed(context, '/worker/experience-certificate');
   }
 
   void _navigateToReferralProgram() {

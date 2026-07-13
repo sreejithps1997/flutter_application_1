@@ -109,6 +109,11 @@ service cloud.firestore {
         allow create: if signedIn();
         allow update, delete: if isAdmin();
       }
+
+      match /achievements/{monthId} {
+        allow read: if signedIn();
+        allow create, update, delete: if isAdmin();
+      }
     }
 
     match /bookings/{bookingId} {

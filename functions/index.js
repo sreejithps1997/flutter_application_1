@@ -1058,6 +1058,163 @@ function isPayoutEligibleBooking(data) {
   return earned && !activeOrPaidPayout;
 }
 
+function isCompletedPaidBooking(data) {
+  const status = stringValue(data && data.status).toLowerCase();
+  const paymentStatus = stringValue(data && data.paymentStatus).toLowerCase();
+  return status === "completed" || status === "paid" || paymentStatus === "paid";
+}
+
+function timestampToDate(value) {
+  if (value && typeof value.toDate === "function") return value.toDate();
+  return null;
+}
+
+function achievementMonthKey(date = new Date()) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function workerBadgeLevel({
+  completedJobs,
+  verifiedHours,
+  averageRating,
+  reviewCount,
+  onTimePercent,
+}) {
+  const rating = reviewCount >= 3 || averageRating > 0 ? averageRating : 4.0;
+  if (
+    completedJobs >= 250 &&
+    verifiedHours >= 1200 &&
+    rating >= 4.8 &&
+    onTimePercent >= 95
+  ) return "Platinum";
+  if (completedJobs >= 120 && verifiedHours >= 500 && rating >= 4.7) {
+    return "Diamond";
+  }
+  if (completedJobs >= 50 && verifiedHours >= 150 && rating >= 4.5) {
+    return "Gold";
+  }
+  if (completedJobs >= 15 && verifiedHours >= 40 && rating >= 4.2) {
+    return "Silver";
+  }
+  return "Verified";
+}
+
+function bookingVerifiedHours(booking) {
+  const timeline = booking.timeline || {};
+  const start = timestampToDate(booking.workStartedAt || timeline.in_progress);
+  const end = timestampToDate(
+    booking.completedAt ||
+    booking.paidAt ||
+    booking.customerConfirmedCompletionAt ||
+    timeline.completed ||
+    timeline.paid
+  );
+  if (!start || !end || end <= start) return 0;
+  const minutes = (end.getTime() - start.getTime()) / 60000;
+  if (minutes <= 0 || minutes > 16 * 60) return 0;
+  return minutes / 60;
+}
+
+async function syncWorkerAchievement(workerId, preferredDate = new Date()) {
+  if (!workerId) return null;
+
+  const [workerSnapshot, bookingsSnapshot, reviewsSnapshot] = await Promise.all([
+    db.collection("workers").doc(workerId).get(),
+    db.collection("bookings").where("workerId", "==", workerId).get(),
+    db.collection("reviews").where("workerId", "==", workerId).get(),
+  ]);
+
+  const worker = workerSnapshot.data() || {};
+  const completedBookings = bookingsSnapshot.docs
+    .map((doc) => ({id: doc.id, ...doc.data()}))
+    .filter(isCompletedPaidBooking);
+  const monthKey = achievementMonthKey(preferredDate);
+  const monthlyBookings = completedBookings.filter((booking) => {
+    const date = timestampToDate(booking.paidAt || booking.completedAt || booking.updatedAt);
+    return achievementMonthKey(date || preferredDate) === monthKey;
+  });
+
+  const ratings = reviewsSnapshot.docs
+    .map((doc) => Number((doc.data() || {}).rating))
+    .filter((rating) => Number.isFinite(rating) && rating > 0);
+  const averageRating = ratings.length > 0 ?
+    Math.round((ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length) * 10) / 10 :
+    Number(worker.averageRating || worker.rating || 0);
+  const verifiedHours = completedBookings.reduce(
+    (total, booking) => total + bookingVerifiedHours(booking),
+    0
+  );
+  const monthlyVerifiedHours = monthlyBookings.reduce(
+    (total, booking) => total + bookingVerifiedHours(booking),
+    0
+  );
+  const customerCounts = {};
+  completedBookings.forEach((booking) => {
+    const customerId = stringValue(booking.customerId);
+    if (!customerId) return;
+    customerCounts[customerId] = (customerCounts[customerId] || 0) + 1;
+  });
+  const repeatCustomers = Object.values(customerCounts)
+    .filter((count) => count > 1).length;
+  const onTimePercent = Number(worker.onTimePercent || worker.punctualityScore || 0);
+  const badgeLevel = workerBadgeLevel({
+    completedJobs: completedBookings.length,
+    verifiedHours,
+    averageRating,
+    reviewCount: ratings.length,
+    onTimePercent,
+  });
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const achievementRef = db
+    .collection("workers")
+    .doc(workerId)
+    .collection("achievements")
+    .doc(monthKey);
+
+  const achievementData = {
+    workerId,
+    month: monthKey,
+    completedJobs: completedBookings.length,
+    monthlyCompletedJobs: monthlyBookings.length,
+    verifiedHours: Math.round(verifiedHours * 10) / 10,
+    monthlyVerifiedHours: Math.round(monthlyVerifiedHours * 10) / 10,
+    averageRating,
+    reviewCount: ratings.length,
+    repeatCustomers,
+    onTimePercent,
+    badgeLevel,
+    certificateNumber: `WRK-${workerId.slice(0, 6).toUpperCase()}-${monthKey.replace("-", "")}`,
+    source: "cloud_function",
+    updatedAt: now,
+    createdAt: now,
+  };
+
+  await Promise.all([
+    achievementRef.set(achievementData, {merge: true}),
+    db.collection("workers").doc(workerId).set({
+      badgeLevel,
+      workerBadge: {
+        level: badgeLevel,
+        completedJobs: completedBookings.length,
+        verifiedHours: Math.round(verifiedHours * 10) / 10,
+        averageRating,
+        reviewCount: ratings.length,
+        repeatCustomers,
+        onTimePercent,
+        updatedAt: now,
+      },
+      completedJobsCount: completedBookings.length,
+      averageRating,
+      reviewCount: ratings.length,
+      totalReviews: ratings.length,
+      updatedAt: now,
+    }, {merge: true}),
+  ]);
+
+  return achievementData;
+}
+
 async function getCachedSmartDiagnosis(query) {
   const cacheKey = normalizeCacheKey(query);
   if (!cacheKey || cacheKey.length < 4) {
@@ -2580,6 +2737,8 @@ exports.notifyCustomerToReviewBooking = functions.firestore
       }));
     }
 
+    tasks.push(syncWorkerAchievement(workerId, new Date()));
+
     return Promise.all(tasks);
   });
 
@@ -2716,6 +2875,8 @@ exports.updateWorkerRating = functions.firestore
         averageRating: roundedAverage,
         reviewCount: ratings.length,
       });
+
+    await syncWorkerAchievement(workerId, new Date());
 
     console.log(
       `Worker ${workerId} updated with avg: ${roundedAverage}, count: ${ratings.length}`

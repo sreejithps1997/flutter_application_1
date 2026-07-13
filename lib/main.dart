@@ -36,6 +36,8 @@ import 'features/help_requests/presentation/customer_help_requests_screen.dart';
 import 'features/help_requests/presentation/worker_help_requests_screen.dart';
 import 'features/help_requests/presentation/worker_help_request_detail_screen.dart';
 import 'features/smart_booking/presentation/smart_booking_assistant_screen.dart';
+import 'features/worker_badges/presentation/worker_achievement_history_screen.dart';
+import 'features/worker_badges/presentation/worker_experience_certificate_screen.dart';
 import 'features/worker_opportunities/presentation/worker_opportunity_feed_screen.dart';
 
 // Worker Auth & Flow
@@ -336,6 +338,10 @@ class WorkableApp extends StatelessWidget {
                 '/worker-settings': (_) => const AppSettingsScreen(),
                 WorkerReviewsScreen.routeName: (_) =>
                     const WorkerReviewsScreen(),
+                WorkerAchievementHistoryScreen.routeName: (_) =>
+                    const WorkerAchievementHistoryScreen(),
+                WorkerExperienceCertificateScreen.routeName: (_) =>
+                    const WorkerExperienceCertificateScreen(),
 
                 // Shared Routes
                 HelpSupportScreen.routeName: (_) => const HelpSupportScreen(),
