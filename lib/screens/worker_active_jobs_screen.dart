@@ -523,18 +523,29 @@ class _PrimaryActions extends StatelessWidget {
   }
 
   Future<void> _updateStatus(BuildContext context, String nextStatus) async {
-    final actions = BookingActionRepository();
-    if (nextStatus == 'confirmed') {
-      await actions.acceptBooking(job.id);
-    } else if (nextStatus == 'in_progress') {
-      await actions.startWork(job.id);
-    } else if (nextStatus == 'cancelled') {
-      await actions.declineBooking(job.id);
+    try {
+      final actions = BookingActionRepository();
+      if (nextStatus == 'confirmed') {
+        await actions.acceptBooking(job.id);
+      } else if (nextStatus == 'in_progress') {
+        await actions.startWork(job.id);
+      } else if (nextStatus == 'cancelled') {
+        await actions.declineBooking(job.id);
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_statusMessage(nextStatus))));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_friendlyActionError(error)),
+          backgroundColor: WorkableDesign.danger,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(_statusMessage(nextStatus))));
   }
 
   Future<void> _requestCompletion(BuildContext context) async {
@@ -556,6 +567,14 @@ class _PrimaryActions extends StatelessWidget {
       default:
         return 'Job updated';
     }
+  }
+
+  String _friendlyActionError(Object error) {
+    final text = error.toString().replaceFirst('Bad state: ', '').trim();
+    if (text.isEmpty || text == 'Exception') {
+      return 'Unable to update job.';
+    }
+    return text;
   }
 }
 

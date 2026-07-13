@@ -2743,6 +2743,55 @@ exports.notifyOnVerificationReview = functions.firestore
     return null;
   });
 
+exports.notifyCustomerOnWorkStarted = functions.firestore
+  .document("bookings/{bookingId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data() || {};
+    const after = change.after.data() || {};
+    const {bookingId} = context.params;
+
+    const statusBefore = stringValue(before.status);
+    const statusAfter = stringValue(after.status);
+    if (statusBefore === "in_progress" || statusAfter !== "in_progress") {
+      return null;
+    }
+
+    const customerId = stringValue(after.customerId);
+    const workerId = stringValue(after.workerId);
+    if (!customerId) return null;
+
+    const workerName = textFrom(after, ["workerName"], "Your worker");
+    const service = textFrom(after, ["service", "serviceType"], "service");
+    const distance = Number(after.startWorkDistanceMeters);
+    const locationText = Number.isFinite(distance) ?
+      ` Location verified within ${Math.round(distance)} m.` :
+      "";
+    const notificationId = notificationIdFor([
+      "work_started",
+      bookingId,
+      customerId,
+    ]);
+
+    await setUserNotification({
+      uid: customerId,
+      notificationId,
+      title: "Work started",
+      message: `${workerName} has started your ${service}.${locationText}`,
+      type: "booking_update",
+      notificationCategory: "booking_workflow",
+      status: "in_progress",
+      requiresAction: false,
+      metadata: {
+        bookingId,
+        workerId,
+        userRole: "customer",
+        route: "customer_booking_detail",
+      },
+    });
+
+    return null;
+  });
+
 exports.notifyCustomerToReviewBooking = functions.firestore
   .document("bookings/{bookingId}")
   .onUpdate(async (change, context) => {

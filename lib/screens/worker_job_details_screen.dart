@@ -55,9 +55,12 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
 
       if (!mounted) return;
       _showSnack(successMessage);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      _showSnack(failureMessage ?? 'Unable to update job.', isError: true);
+      _showSnack(
+        _friendlyActionError(error, failureMessage ?? 'Unable to update job.'),
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _isActing = false);
     }
@@ -142,6 +145,12 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
             : WorkableDesign.success,
       ),
     );
+  }
+
+  String _friendlyActionError(Object error, String fallback) {
+    final text = error.toString().replaceFirst('Bad state: ', '').trim();
+    if (text.isEmpty || text == 'Exception') return fallback;
+    return text;
   }
 
   @override
@@ -343,6 +352,7 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
           job['timeline']?['paid'],
     );
     final verifiedMinutes = _verifiedMinutes(start, end);
+    final distance = _asDouble(job['startWorkDistanceMeters']);
 
     return WorkableSectionCard(
       child: Column(
@@ -366,6 +376,13 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
             value: verifiedMinutes == null
                 ? 'Will calculate after completion'
                 : _formatDuration(verifiedMinutes),
+          ),
+          _DetailRow(
+            icon: LucideIcons.mapPin,
+            label: 'Start location',
+            value: job['startLocationVerified'] == true
+                ? 'Verified${distance == null ? '' : ' within ${distance.toStringAsFixed(0)} m'}'
+                : 'Not verified yet',
           ),
           const SizedBox(height: 6),
           const WorkableInfoRow(
@@ -511,6 +528,11 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     final minutes = end.difference(start).inMinutes;
     if (minutes <= 0 || minutes > 16 * 60) return null;
     return minutes;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 
   String _formatDateTime(DateTime? value) {

@@ -1,10 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../../../utils/location_helper.dart';
 
 class BookingActionRepository {
   BookingActionRepository({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
+  static const double startWorkArrivalRadiusMeters = 120;
 
   Future<void> acceptBooking(String bookingId) {
     return _updateBooking(bookingId, {
@@ -30,6 +34,33 @@ class BookingActionRepository {
     }
 
     final bookingRef = _firestore.collection('bookings').doc(bookingId);
+    final precheckBooking = (await bookingRef.get()).data();
+    final serviceLocation = _bookingServiceLocation(precheckBooking);
+    if (serviceLocation == null) {
+      throw StateError(
+        'Exact service location is missing. Add or confirm the customer location before starting work.',
+      );
+    }
+
+    final workerPosition = await LocationHelper.getCurrentLocation();
+    if (workerPosition == null) {
+      throw StateError(
+        'Turn on location permission and GPS to start work at the customer location.',
+      );
+    }
+
+    final distanceMeters = Geolocator.distanceBetween(
+      workerPosition.latitude,
+      workerPosition.longitude,
+      serviceLocation.latitude,
+      serviceLocation.longitude,
+    );
+    if (distanceMeters > startWorkArrivalRadiusMeters) {
+      throw StateError(
+        'You are ${distanceMeters.toStringAsFixed(0)} m away from the service location. Start work only after reaching the customer.',
+      );
+    }
+
     await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(bookingRef);
       final booking = snapshot.data();
@@ -37,10 +68,22 @@ class BookingActionRepository {
       if (!snapshot.exists || (status != 'confirmed' && status != 'accepted')) {
         throw StateError('Only accepted jobs can be started.');
       }
+      if (_bookingServiceLocation(booking) == null) {
+        throw StateError('Exact service location is missing.');
+      }
 
       final data = {
         'status': 'in_progress',
         'workStartedAt': FieldValue.serverTimestamp(),
+        'startLocationVerified': true,
+        'startWorkDistanceMeters': distanceMeters,
+        'startWorkArrivalRadiusMeters': startWorkArrivalRadiusMeters,
+        'workerStartLocation': GeoPoint(
+          workerPosition.latitude,
+          workerPosition.longitude,
+        ),
+        'workerStartLocationAccuracy': workerPosition.accuracy,
+        'workerStartLocationVerifiedAt': FieldValue.serverTimestamp(),
         'timeline.in_progress': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -51,6 +94,15 @@ class BookingActionRepository {
     await _syncSourceHelpRequest(bookingRef, {
       'status': 'in_progress',
       'workStartedAt': FieldValue.serverTimestamp(),
+      'startLocationVerified': true,
+      'startWorkDistanceMeters': distanceMeters,
+      'startWorkArrivalRadiusMeters': startWorkArrivalRadiusMeters,
+      'workerStartLocation': GeoPoint(
+        workerPosition.latitude,
+        workerPosition.longitude,
+      ),
+      'workerStartLocationAccuracy': workerPosition.accuracy,
+      'workerStartLocationVerifiedAt': FieldValue.serverTimestamp(),
       'timeline.in_progress': FieldValue.serverTimestamp(),
     }, booking);
   }
@@ -160,5 +212,39 @@ class BookingActionRepository {
           entry.key: entry.value,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  GeoPoint? _bookingServiceLocation(Map<String, dynamic>? booking) {
+    if (booking == null) return null;
+    final location = booking['addressLocation'] ?? booking['serviceLocation'];
+    if (location is GeoPoint && _isUsableCoordinate(location)) return location;
+
+    final lat = _asDouble(
+      booking['addressLatitude'] ??
+          booking['latitude'] ??
+          booking['serviceLatitude'],
+    );
+    final lng = _asDouble(
+      booking['addressLongitude'] ??
+          booking['longitude'] ??
+          booking['serviceLongitude'],
+    );
+    if (lat == null || lng == null) return null;
+
+    final point = GeoPoint(lat, lng);
+    return _isUsableCoordinate(point) ? point : null;
+  }
+
+  bool _isUsableCoordinate(GeoPoint point) {
+    if (point.latitude == 0 && point.longitude == 0) return false;
+    return point.latitude >= -90 &&
+        point.latitude <= 90 &&
+        point.longitude >= -180 &&
+        point.longitude <= 180;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 }

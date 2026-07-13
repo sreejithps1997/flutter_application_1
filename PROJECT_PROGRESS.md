@@ -145,6 +145,10 @@ Testing rule:
 
 Worker badge, achievement, and certificate tests:
 - Accept a worker booking and confirm the worker sees `Start Work` before `Request Completion`.
+- Confirm `Start Work` is blocked when worker GPS is not within the allowed arrival radius of the saved service location.
+- Confirm `Start Work` is blocked when the booking has no exact saved service GPS location.
+- Confirm successful `Start Work` saves `startLocationVerified`, `workerStartLocation`, `startWorkDistanceMeters`, `startWorkArrivalRadiusMeters`, and location accuracy.
+- Confirm the customer receives a `Work started` notification when the worker starts work at the verified location.
 - Tap `Start Work` and confirm `workStartedAt` and `timeline.in_progress` are saved.
 - Tap `Request Completion` and confirm `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested` are saved.
 - Confirm a worker cannot request completion before starting work.
@@ -769,6 +773,11 @@ Growth and marketplace innovation:
       - Firestore rules allow signed-in users to read worker achievement records while writes remain admin/backend controlled
     - worker hours tracking polish completed:
       - booking action repository now requires accepted jobs to move through `Start Work`
+      - `Start Work` is now location-gated against the saved customer service location
+      - default arrival radius is 120 meters to balance fraud prevention with GPS drift
+      - `Start Work` stores `startLocationVerified`, worker GPS, distance from service point, accuracy, and verification timestamp
+      - `Start Work` is blocked when the booking has no exact service GPS or the worker is outside the allowed radius
+      - customer receives a backend-created `Work started` notification when the worker starts work
       - `Start Work` saves `workStartedAt` and `timeline.in_progress`
       - `Request Completion` now requires `in_progress` status and saves `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested`
       - worker job detail shows start time, work completed time, and tracked work duration
