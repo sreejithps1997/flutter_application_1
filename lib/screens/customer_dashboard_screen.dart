@@ -16,6 +16,7 @@ import '../core/theme/workable_design.dart';
 import '../features/community_campaigns/presentation/customer_campaign_strip.dart';
 import '../features/help_requests/presentation/customer_help_requests_screen.dart';
 import '../features/smart_booking/presentation/smart_booking_assistant_screen.dart';
+import '../features/worker_badges/presentation/worker_badge_chip.dart';
 import 'generic_help_request_screen.dart';
 
 class CustomerDashboardScreen extends StatefulWidget {
@@ -418,6 +419,8 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
                             VerificationTierBadge(tier: tier),
                           ],
                         ),
+                        const SizedBox(height: 6),
+                        WorkerBadgeChip(workerId: id),
                         const SizedBox(height: 6),
                         Row(
                           children: [

@@ -722,6 +722,21 @@ Growth and marketplace innovation:
       - Customer favourite
       - Fastest-growing professional
       - Best newcomer
+    - first implementation completed:
+      - clean Riverpod feature module added under `lib/features/worker_badges`
+      - badge levels: Verified, Silver, Gold, Diamond, Platinum
+      - calculates completed jobs from worker stats plus paid/completed bookings
+      - calculates verified work hours from `workStartedAt` to `completedAt`/`paidAt` where available
+      - calculates repeat customers from completed paid bookings
+      - uses rating/review fields from worker profile
+      - compact badge chip appears on customer dashboard worker cards
+      - full transparent badge summary appears on worker profile
+      - focused analyzer passed for worker badge feature and wired screens
+    - next implementation:
+      - backend-sync monthly achievement summaries
+      - track punctuality from accepted/start/scheduled timestamps
+      - add shareable worker milestone cards
+      - add admin badge rule configuration later
   - Worker Experience Certificate:
     - downloadable "Workable Verified Work Record" or "Workable Professional Experience Certificate"
     - must not look like a government/academic certificate

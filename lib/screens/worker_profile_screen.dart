@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../core/theme/workable_design.dart';
+import '../features/worker_badges/presentation/worker_badge_summary_card.dart';
 import '../widgets/star_rating.dart';
 import '../widgets/verification_tier_badge.dart';
 import 'chat_screen.dart';
@@ -434,6 +435,8 @@ class _WorkerProfileScreenState extends State<WorkerProfileScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+                  WorkerBadgeSummaryCard(workerId: widget.workerId),
                   const SizedBox(height: 24),
 
                   // Action buttons
