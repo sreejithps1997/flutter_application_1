@@ -32,6 +32,26 @@ class CommunityCampaign {
   final DateTime? createdAt;
 
   bool get isActive => status == 'active';
+  int get remainingSlots {
+    final remaining = bookingLimit - joinedCount;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  double get progress {
+    if (bookingLimit <= 0) return 0;
+    final value = joinedCount / bookingLimit;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+  }
+
+  String get groupProgressLabel {
+    if (joinedCount >= minimumBookings) {
+      return 'Group price unlocked';
+    }
+    final needed = minimumBookings - joinedCount;
+    return '$needed more ${needed == 1 ? 'home' : 'homes'} to unlock group price';
+  }
 
   factory CommunityCampaign.fromSnapshot(
     QueryDocumentSnapshot<Map<String, dynamic>> snapshot,

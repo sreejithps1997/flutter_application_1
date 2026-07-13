@@ -59,4 +59,65 @@ class CommunityCampaignRepository {
       'source': 'admin_campaign_calendar',
     });
   }
+
+  Stream<bool> watchMyJoinStatus(String campaignId) {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return Stream<bool>.value(false);
+    return _firestore
+        .collection('communityCampaigns')
+        .doc(campaignId)
+        .collection('joins')
+        .doc(uid)
+        .snapshots()
+        .map((snapshot) => snapshot.exists);
+  }
+
+  Future<void> joinCampaign(CommunityCampaign campaign) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Sign in required.');
+    if (!campaign.isActive) throw StateError('Campaign is not active.');
+
+    final campaignRef = _firestore
+        .collection('communityCampaigns')
+        .doc(campaign.id);
+    final joinRef = campaignRef.collection('joins').doc(user.uid);
+    final now = FieldValue.serverTimestamp();
+
+    await _firestore.runTransaction((transaction) async {
+      final joinSnap = await transaction.get(joinRef);
+      if (joinSnap.exists) return;
+      transaction.set(joinRef, {
+        'userId': user.uid,
+        'userName': user.displayName ?? user.email ?? 'Customer',
+        'userPhone': user.phoneNumber ?? '',
+        'campaignId': campaign.id,
+        'campaignName': campaign.name,
+        'status': 'interested',
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      transaction.update(campaignRef, {
+        'joinedCount': FieldValue.increment(1),
+        'updatedAt': now,
+      });
+    });
+  }
+
+  Future<void> trackCampaignShare({
+    required CommunityCampaign campaign,
+    required String channel,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    final now = FieldValue.serverTimestamp();
+    await _firestore.collection('communityCampaignShares').add({
+      'campaignId': campaign.id,
+      'campaignName': campaign.name,
+      'sharedBy': user.uid,
+      'channel': channel,
+      'status': 'shared',
+      'createdAt': now,
+      'updatedAt': now,
+    });
+  }
 }

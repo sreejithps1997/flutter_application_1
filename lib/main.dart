@@ -34,6 +34,7 @@ import 'features/admin_control/presentation/dispute_evidence_submission_screen.d
 import 'features/admin_demand/presentation/admin_demand_review_screen.dart';
 import 'features/admin_referrals/presentation/admin_referral_reward_screen.dart';
 import 'features/community_campaigns/presentation/admin_campaign_calendar_screen.dart';
+import 'features/community_campaigns/presentation/customer_campaign_detail_screen.dart';
 import 'features/help_requests/presentation/customer_help_request_detail_screen.dart';
 import 'features/help_requests/presentation/customer_help_requests_screen.dart';
 import 'features/help_requests/presentation/worker_help_requests_screen.dart';
@@ -459,6 +460,8 @@ class WorkableApp extends StatelessWidget {
                     const AdminReferralRewardScreen(),
                 AdminCampaignCalendarScreen.routeName: (context) =>
                     const AdminCampaignCalendarScreen(),
+                CustomerCampaignDetailScreen.routeName: (context) =>
+                    const CustomerCampaignDetailScreen(),
 
                 CustomerBookingReviewScreen.routeName: (ctx) {
                   final args =

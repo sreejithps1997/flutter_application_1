@@ -161,6 +161,16 @@ Referral growth/audit tests:
 - Confirm Total joined, Customers, Workers, Pending, Reward audit, People joined, and Referral history match Firestore `referrals` records.
 - Confirm referral share counters are only visible for the signed-in referrer/admin through rules.
 
+Community campaign tests:
+- Admin creates an active campaign and confirms it appears in the customer dashboard campaign strip.
+- Customer taps a campaign banner and lands on the campaign detail screen.
+- Detail screen shows location, discount, service categories, joined homes, remaining slots, and group-price progress.
+- Customer taps Join Campaign and confirms a `communityCampaigns/{id}/joins/{uid}` record is created.
+- Confirm campaign `joinedCount` increments only once for the same user.
+- Confirm customer cannot edit campaign content and can only increment `joinedCount` by one through rules.
+- Tap WhatsApp/share copy and confirm `communityCampaignShares` records are created.
+- Confirm exact customer addresses are never shown in campaign counts or share copy.
+
 Admin dispute/evidence/audit tests:
 - Create or simulate a disputed booking and confirm it appears in Admin Dispute Center.
 - Mark a dispute under review and confirm `adminAuditLogs` receives a `mark_under_review` entry.
@@ -1101,12 +1111,22 @@ Growth and marketplace innovation:
       - only admins can create/update/delete campaigns
     - Focused analyzer passed for campaign feature, route wiring, admin dashboard, and customer dashboard.
     - Firestore rules dry run compiled successfully.
-    - Deploy needed:
-      - `firebase deploy --only firestore:rules`
-    - Next campaign work:
-      - one-tap campaign booking
-      - campaign share links
-      - joined-count tracking
+    - Firestore rules deployed.
+    - Customer campaign detail/join/share flow added:
+      - `lib/features/community_campaigns/presentation/customer_campaign_detail_screen.dart`
+      - dashboard campaign cards now open detail screen
+      - customer can join an active campaign
+      - customer can share campaign through WhatsApp or copy
+      - campaign detail shows group-price progress, joined homes, remaining slots, and service categories
+      - join records stored under `communityCampaigns/{campaignId}/joins/{uid}`
+      - campaign share events stored in `communityCampaignShares`
+    - Firestore rules updated and deployed:
+      - signed-in users can create their own join record
+      - signed-in users can only increment `joinedCount` by one and update `updatedAt`
+      - campaign content remains admin-only
+      - campaign share events are append-only for the signed-in sharer
+    - Next campaign hardening:
+      - convert joined campaign into actual booking/help request with date/slot selection
       - location targeting by city/apartment
       - group discount tier unlocks
       - admin analytics for campaign conversion
@@ -3429,9 +3449,8 @@ Highest priority pending work:
    - Why this matters: this is the zero-cost growth engine.
 
 5. Community campaign foundation
-   - Admin campaign calendar: name, dates, location, service categories, discount, group booking rules, banner, booking limit.
-   - Customer locality campaign banners with one-tap booking/share.
-   - Neighbourhood group pricing: more nearby bookings unlock better rate.
+   - Completed enough to move on: admin campaign calendar, customer dashboard banners, campaign detail screen, join flow, share flow, joined-count tracking, group-price progress, and deployed Firestore rules.
+   - Later hardening: convert campaign joins into booking/help requests with date/slot selection, city/apartment targeting, group discount tiers, and admin conversion analytics.
    - Why this matters: this creates repeat demand instead of waiting for customers to have emergencies.
 
 6. AI Smart Booking next layer
@@ -3479,8 +3498,8 @@ Daily execution rule from now:
 - Avoid duplicate screens; upgrade, connect, or retire existing screens where possible.
 
 Recommended next work:
-- Product feature: community campaign foundation for seasonal/locality group bookings.
-- Architecture feature: expand `features/community_campaigns` from admin calendar/customer strip into full campaign booking/share flow.
+- Product feature: campaign join to booking/help-request conversion with date/slot selection, or move to AI Smart Booking next layer if quota is better used on the core AI flow.
+- Architecture feature: keep expanding campaign flow inside `features/community_campaigns` and avoid putting campaign booking logic into dashboard widgets.
 
 ## Important Reminder
 
