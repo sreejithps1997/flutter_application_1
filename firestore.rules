@@ -362,6 +362,12 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /adminAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Closed fallback. New collections should receive explicit rules before
     // production use.
     match /{document=**} {

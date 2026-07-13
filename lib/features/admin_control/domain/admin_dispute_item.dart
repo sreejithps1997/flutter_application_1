@@ -14,6 +14,9 @@ class AdminDisputeItem {
     required this.issue,
     required this.amount,
     required this.adminNote,
+    required this.evidenceStatus,
+    required this.resolutionStatus,
+    required this.riskFlags,
     required this.updatedAt,
     required this.data,
   });
@@ -28,6 +31,9 @@ class AdminDisputeItem {
   final String issue;
   final double amount;
   final String adminNote;
+  final String evidenceStatus;
+  final String resolutionStatus;
+  final List<String> riskFlags;
   final DateTime? updatedAt;
   final Map<String, dynamic> data;
 
@@ -58,6 +64,9 @@ class AdminDisputeItem {
       ], ''),
       amount: _amount(data),
       adminNote: _text(data, ['adminDisputeNote', 'adminNote'], ''),
+      evidenceStatus: _text(data, ['evidenceStatus'], ''),
+      resolutionStatus: _text(data, ['resolutionStatus'], ''),
+      riskFlags: _list(data['riskFlags']),
       updatedAt: _date(data['updatedAt'] ?? data['createdAt']),
       data: data,
     );
@@ -78,6 +87,9 @@ class AdminDisputeItem {
       issue: _text(data, ['completionDisputeReason', 'description'], ''),
       amount: _amount(data),
       adminNote: _text(data, ['adminDisputeNote', 'adminNote'], ''),
+      evidenceStatus: _text(data, ['evidenceStatus'], ''),
+      resolutionStatus: _text(data, ['resolutionStatus'], ''),
+      riskFlags: _list(data['riskFlags']),
       updatedAt: _date(data['updatedAt'] ?? data['createdAt']),
       data: data,
     );
@@ -117,5 +129,15 @@ class AdminDisputeItem {
   static DateTime? _date(dynamic value) {
     if (value is Timestamp) return value.toDate();
     return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  static List<String> _list(dynamic value) {
+    if (value is Iterable) {
+      return value
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 }

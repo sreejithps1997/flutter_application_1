@@ -1,13 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../domain/admin_control_summary.dart';
 import '../domain/admin_dispute_item.dart';
 
 class AdminControlRepository {
-  AdminControlRepository({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+  AdminControlRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _auth = auth ?? FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
+  final FirebaseAuth _auth;
 
   Future<AdminControlSummary> loadSummary() async {
     final results = await Future.wait<int>([
@@ -64,24 +67,152 @@ class AdminControlRepository {
     });
   }
 
-  Future<void> markDisputeUnderReview(AdminDisputeItem item) {
-    return _updateDispute(item, {
+  Future<void> markDisputeUnderReview(AdminDisputeItem item) async {
+    await _updateDispute(item, {
       'adminReviewStatus': 'under_review',
       'adminReviewStartedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    await _writeAudit(
+      item,
+      action: 'mark_under_review',
+      note: 'Admin marked dispute under review.',
+      newState: const {'adminReviewStatus': 'under_review'},
+    );
   }
 
-  Future<void> saveDisputeNote(AdminDisputeItem item, String note) {
+  Future<void> saveDisputeNote(AdminDisputeItem item, String note) async {
     final cleanNote = note.trim();
     if (cleanNote.isEmpty) {
       throw StateError('Admin note is required.');
     }
-    return _updateDispute(item, {
+    await _updateDispute(item, {
       'adminDisputeNote': cleanNote,
       'adminDisputeNoteUpdatedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    await _writeAudit(
+      item,
+      action: 'save_admin_note',
+      note: cleanNote,
+      newState: {'adminDisputeNote': cleanNote},
+    );
+  }
+
+  Future<void> requestEvidence({
+    required AdminDisputeItem item,
+    required String requestedFrom,
+    required String requestNote,
+  }) async {
+    final cleanNote = requestNote.trim();
+    if (cleanNote.isEmpty) {
+      throw StateError('Evidence request note is required.');
+    }
+    final normalizedParty = requestedFrom.trim().toLowerCase();
+    final data = {
+      'evidenceStatus': 'requested',
+      'evidenceRequestedFrom': normalizedParty,
+      'evidenceRequestNote': cleanNote,
+      'evidenceRequestedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    await _updateDispute(item, data);
+    await _writeAudit(
+      item,
+      action: 'request_evidence',
+      note: cleanNote,
+      newState: {
+        'evidenceStatus': 'requested',
+        'evidenceRequestedFrom': normalizedParty,
+      },
+    );
+  }
+
+  Future<void> flagRisk({
+    required AdminDisputeItem item,
+    required String riskFlag,
+    required String note,
+  }) async {
+    final cleanFlag = riskFlag.trim();
+    final cleanNote = note.trim();
+    if (cleanFlag.isEmpty || cleanNote.isEmpty) {
+      throw StateError('Risk flag and note are required.');
+    }
+    await _updateDispute(item, {
+      'riskFlags': FieldValue.arrayUnion([cleanFlag]),
+      'latestRiskNote': cleanNote,
+      'latestRiskFlaggedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await _writeAudit(
+      item,
+      action: 'flag_risk',
+      note: cleanNote,
+      newState: {'riskFlag': cleanFlag},
+    );
+  }
+
+  Future<void> resolveDispute({
+    required AdminDisputeItem item,
+    required String decision,
+    required String note,
+    double? creditAmount,
+  }) async {
+    final cleanNote = note.trim();
+    if (cleanNote.isEmpty) {
+      throw StateError('Resolution note is required.');
+    }
+
+    final normalizedDecision = decision.trim().toLowerCase();
+    if (!{
+      'customer_favor',
+      'worker_favor',
+      'partial_credit',
+    }.contains(normalizedDecision)) {
+      throw StateError('Unsupported dispute decision.');
+    }
+
+    final updateData = <String, dynamic>{
+      'adminReviewStatus': 'resolved',
+      'resolutionStatus': normalizedDecision,
+      'resolutionNote': cleanNote,
+      'resolvedAt': FieldValue.serverTimestamp(),
+      'resolvedBy': _adminId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (normalizedDecision == 'customer_favor') {
+      updateData.addAll({
+        'status': item.isHelpRequest ? 'resolved_customer_favor' : 'completed',
+        'paymentStatus': 'customer_favor_resolved',
+      });
+    } else if (normalizedDecision == 'worker_favor') {
+      updateData.addAll({
+        'status': item.isHelpRequest ? 'resolved_worker_favor' : 'completed',
+        'paymentStatus': 'worker_favor_resolved',
+      });
+    } else {
+      final amount = creditAmount ?? 0;
+      if (amount <= 0) {
+        throw StateError('Partial credit amount must be greater than zero.');
+      }
+      updateData.addAll({
+        'status': item.isHelpRequest ? 'resolved_partial_credit' : 'completed',
+        'paymentStatus': 'partial_credit_resolved',
+        'platformCreditAmount': amount,
+      });
+    }
+
+    await _updateDispute(item, updateData);
+    await _writeAudit(
+      item,
+      action: 'resolve_dispute',
+      note: cleanNote,
+      newState: {
+        'resolutionStatus': normalizedDecision,
+        if (creditAmount != null) 'platformCreditAmount': creditAmount,
+      },
+    );
   }
 
   Future<void> _updateDispute(
@@ -91,6 +222,34 @@ class AdminControlRepository {
     final collection = item.isHelpRequest ? 'helpRequests' : 'bookings';
     return _firestore.collection(collection).doc(item.id).update(data);
   }
+
+  Future<void> _writeAudit(
+    AdminDisputeItem item, {
+    required String action,
+    required String note,
+    required Map<String, dynamic> newState,
+  }) {
+    return _firestore.collection('adminAuditLogs').add({
+      'adminId': _adminId,
+      'action': action,
+      'targetCollection': item.isHelpRequest ? 'helpRequests' : 'bookings',
+      'targetId': item.id,
+      'targetType': item.typeLabel,
+      'note': note,
+      'previousState': {
+        'status': item.status,
+        'paymentStatus': item.paymentStatus,
+        'adminReviewStatus': item.data['adminReviewStatus'],
+        'evidenceStatus': item.evidenceStatus,
+        'resolutionStatus': item.resolutionStatus,
+        'riskFlags': item.riskFlags,
+      },
+      'newState': newState,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  String get _adminId => _auth.currentUser?.uid ?? 'unknown_admin';
 
   bool _isDisputedBooking(Map<String, dynamic> data) {
     final status = data['status']?.toString().toLowerCase() ?? '';

@@ -138,6 +138,85 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
     }
   }
 
+  Future<void> _requestEvidence() async {
+    final result = await showDialog<_EvidenceRequestDraft>(
+      context: context,
+      builder: (_) => const _EvidenceRequestDialog(),
+    );
+    if (result == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(adminControlRepositoryProvider)
+          .requestEvidence(
+            item: widget.item,
+            requestedFrom: result.requestedFrom,
+            requestNote: result.note,
+          );
+      if (!mounted) return;
+      _showSnack('Evidence requested from ${result.requestedFrom}.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Unable to request evidence: $error', isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _flagRisk() async {
+    final result = await showDialog<_RiskFlagDraft>(
+      context: context,
+      builder: (_) => const _RiskFlagDialog(),
+    );
+    if (result == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(adminControlRepositoryProvider)
+          .flagRisk(
+            item: widget.item,
+            riskFlag: result.flag,
+            note: result.note,
+          );
+      if (!mounted) return;
+      _showSnack('Risk flag added.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Unable to flag risk: $error', isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resolveDispute() async {
+    final result = await showDialog<_ResolutionDraft>(
+      context: context,
+      builder: (_) => const _ResolutionDialog(),
+    );
+    if (result == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(adminControlRepositoryProvider)
+          .resolveDispute(
+            item: widget.item,
+            decision: result.decision,
+            note: result.note,
+            creditAmount: result.creditAmount,
+          );
+      if (!mounted) return;
+      _showSnack('Dispute resolved.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Unable to resolve dispute: $error', isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
@@ -183,6 +262,24 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
                     color: WorkableDesign.success,
                     icon: LucideIcons.wallet,
                   ),
+                if (item.evidenceStatus.isNotEmpty)
+                  WorkableStatusPill(
+                    label: 'Evidence: ${_label(item.evidenceStatus)}',
+                    color: WorkableDesign.warning,
+                    icon: LucideIcons.fileQuestion,
+                  ),
+                if (item.resolutionStatus.isNotEmpty)
+                  WorkableStatusPill(
+                    label: 'Resolved: ${_label(item.resolutionStatus)}',
+                    color: WorkableDesign.success,
+                    icon: LucideIcons.badgeCheck,
+                  ),
+                if (item.riskFlags.isNotEmpty)
+                  WorkableStatusPill(
+                    label: '${item.riskFlags.length} risk flag',
+                    color: WorkableDesign.danger,
+                    icon: LucideIcons.flag,
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -203,23 +300,43 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
                 icon: LucideIcons.messageSquare,
                 text: 'Admin note: ${item.adminNote}',
               ),
+            if (item.riskFlags.isNotEmpty)
+              WorkableInfoRow(
+                icon: LucideIcons.flag,
+                text: 'Risk flags: ${item.riskFlags.map(_label).join(', ')}',
+              ),
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _markUnderReview,
-                    icon: const Icon(LucideIcons.eye, size: 18),
-                    label: const Text('Under Review'),
-                  ),
+                _ActionButton(
+                  onPressed: _busy ? null : _markUnderReview,
+                  icon: LucideIcons.eye,
+                  label: 'Under Review',
+                  outlined: true,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _addNote,
-                    icon: const Icon(LucideIcons.messageSquare, size: 18),
-                    label: Text(_busy ? 'Saving...' : 'Add Note'),
-                  ),
+                _ActionButton(
+                  onPressed: _busy ? null : _requestEvidence,
+                  icon: LucideIcons.fileQuestion,
+                  label: 'Evidence',
+                  outlined: true,
+                ),
+                _ActionButton(
+                  onPressed: _busy ? null : _flagRisk,
+                  icon: LucideIcons.flag,
+                  label: 'Risk Flag',
+                  outlined: true,
+                ),
+                _ActionButton(
+                  onPressed: _busy ? null : _addNote,
+                  icon: LucideIcons.messageSquare,
+                  label: _busy ? 'Saving...' : 'Note',
+                ),
+                _ActionButton(
+                  onPressed: _busy ? null : _resolveDispute,
+                  icon: LucideIcons.checkCircle2,
+                  label: 'Resolve',
                 ),
               ],
             ),
@@ -249,6 +366,330 @@ class _DisputeCardState extends ConsumerState<_DisputeCard> {
             : WorkableDesign.success,
         behavior: SnackBarBehavior.floating,
       ),
+    );
+  }
+
+  String _label(String value) => value.replaceAll('_', ' ');
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+    this.outlined = false,
+  });
+
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final String label;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Icon(icon, size: 18), const SizedBox(width: 8), Text(label)],
+    );
+    if (outlined) {
+      return OutlinedButton(onPressed: onPressed, child: child);
+    }
+    return FilledButton(onPressed: onPressed, child: child);
+  }
+}
+
+class _EvidenceRequestDraft {
+  const _EvidenceRequestDraft({
+    required this.requestedFrom,
+    required this.note,
+  });
+
+  final String requestedFrom;
+  final String note;
+}
+
+class _EvidenceRequestDialog extends StatefulWidget {
+  const _EvidenceRequestDialog();
+
+  @override
+  State<_EvidenceRequestDialog> createState() => _EvidenceRequestDialogState();
+}
+
+class _EvidenceRequestDialogState extends State<_EvidenceRequestDialog> {
+  String _requestedFrom = 'customer';
+  final _noteController = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Request Evidence'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            value: _requestedFrom,
+            decoration: const InputDecoration(
+              labelText: 'Request from',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'customer', child: Text('Customer')),
+              DropdownMenuItem(value: 'worker', child: Text('Worker')),
+              DropdownMenuItem(value: 'both', child: Text('Both')),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _requestedFrom = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _noteController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Evidence needed',
+              hintText: 'Photos, payment proof, work proof, invoice, notes...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final note = _noteController.text.trim();
+            if (note.isEmpty) return;
+            Navigator.pop(
+              context,
+              _EvidenceRequestDraft(requestedFrom: _requestedFrom, note: note),
+            );
+          },
+          child: const Text('Request'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RiskFlagDraft {
+  const _RiskFlagDraft({required this.flag, required this.note});
+
+  final String flag;
+  final String note;
+}
+
+class _RiskFlagDialog extends StatefulWidget {
+  const _RiskFlagDialog();
+
+  @override
+  State<_RiskFlagDialog> createState() => _RiskFlagDialogState();
+}
+
+class _RiskFlagDialogState extends State<_RiskFlagDialog> {
+  String _flag = 'fake_payment_report';
+  final _noteController = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Flag Risk'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            value: _flag,
+            decoration: const InputDecoration(
+              labelText: 'Risk type',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'fake_payment_report',
+                child: Text('Fake payment report'),
+              ),
+              DropdownMenuItem(
+                value: 'repeated_cancellation',
+                child: Text('Repeated cancellation'),
+              ),
+              DropdownMenuItem(
+                value: 'suspicious_start_override',
+                child: Text('Suspicious start override'),
+              ),
+              DropdownMenuItem(
+                value: 'repeat_dispute_pattern',
+                child: Text('Repeat dispute pattern'),
+              ),
+              DropdownMenuItem(
+                value: 'outside_payment_attempt',
+                child: Text('Outside payment attempt'),
+              ),
+              DropdownMenuItem(
+                value: 'referral_abuse',
+                child: Text('Referral abuse'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _flag = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _noteController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Reason',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final note = _noteController.text.trim();
+            if (note.isEmpty) return;
+            Navigator.pop(context, _RiskFlagDraft(flag: _flag, note: note));
+          },
+          child: const Text('Flag'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ResolutionDraft {
+  const _ResolutionDraft({
+    required this.decision,
+    required this.note,
+    this.creditAmount,
+  });
+
+  final String decision;
+  final String note;
+  final double? creditAmount;
+}
+
+class _ResolutionDialog extends StatefulWidget {
+  const _ResolutionDialog();
+
+  @override
+  State<_ResolutionDialog> createState() => _ResolutionDialogState();
+}
+
+class _ResolutionDialogState extends State<_ResolutionDialog> {
+  String _decision = 'customer_favor';
+  final _noteController = TextEditingController();
+  final _creditController = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    _creditController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPartialCredit = _decision == 'partial_credit';
+    return AlertDialog(
+      title: const Text('Resolve Dispute'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            value: _decision,
+            decoration: const InputDecoration(
+              labelText: 'Decision',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(
+                value: 'customer_favor',
+                child: Text('Customer favor'),
+              ),
+              DropdownMenuItem(
+                value: 'worker_favor',
+                child: Text('Worker favor'),
+              ),
+              DropdownMenuItem(
+                value: 'partial_credit',
+                child: Text('Partial refund / credit'),
+              ),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _decision = value);
+            },
+          ),
+          if (isPartialCredit) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _creditController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Credit amount',
+                prefixText: 'Rs. ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _noteController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Resolution reason',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final note = _noteController.text.trim();
+            if (note.isEmpty) return;
+            final creditAmount = isPartialCredit
+                ? double.tryParse(_creditController.text.trim())
+                : null;
+            if (isPartialCredit &&
+                (creditAmount == null || creditAmount <= 0)) {
+              return;
+            }
+            Navigator.pop(
+              context,
+              _ResolutionDraft(
+                decision: _decision,
+                note: note,
+                creditAmount: creditAmount,
+              ),
+            );
+          },
+          child: const Text('Resolve'),
+        ),
+      ],
     );
   }
 }
