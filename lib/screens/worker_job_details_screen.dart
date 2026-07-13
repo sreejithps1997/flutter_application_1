@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -23,11 +25,19 @@ class WorkerJobDetailsScreen extends StatefulWidget {
 class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
   bool hasVerified = true;
   bool _isActing = false;
+  bool _isSharingLocation = false;
+  Timer? _liveLocationTimer;
 
   @override
   void initState() {
     super.initState();
     _checkVerificationStatus();
+  }
+
+  @override
+  void dispose() {
+    _liveLocationTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _checkVerificationStatus() async {
@@ -135,6 +145,53 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     }
   }
 
+  Future<void> _shareLiveLocation({bool showSuccess = true}) async {
+    try {
+      await BookingActionRepository().updateWorkerLiveLocation(
+        widget.bookingId,
+      );
+      if (!mounted) return;
+      if (!_isSharingLocation) setState(() => _isSharingLocation = true);
+      if (showSuccess) {
+        _showSnack('Live location shared with the customer.');
+      }
+    } catch (error) {
+      _liveLocationTimer?.cancel();
+      if (!mounted) return;
+      setState(() => _isSharingLocation = false);
+      _showSnack(
+        _friendlyActionError(error, 'Unable to share live location.'),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _startLiveLocationSharing() async {
+    if (_isSharingLocation) return;
+    await _shareLiveLocation();
+    if (!mounted || !_isSharingLocation) return;
+    _liveLocationTimer?.cancel();
+    _liveLocationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _shareLiveLocation(showSuccess: false);
+    });
+  }
+
+  Future<void> _stopLiveLocationSharing() async {
+    _liveLocationTimer?.cancel();
+    setState(() => _isSharingLocation = false);
+    try {
+      await BookingActionRepository().stopWorkerLiveLocation(widget.bookingId);
+      if (!mounted) return;
+      _showSnack('Live location sharing stopped.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack(
+        _friendlyActionError(error, 'Unable to stop live location.'),
+        isError: true,
+      );
+    }
+  }
+
   void _showSnack(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -221,6 +278,10 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
           const SizedBox(height: 16),
           if (!hasVerified) _buildRestrictedCard(),
           if (!hasVerified) const SizedBox(height: 16),
+          if (status == 'confirmed' || status == 'accepted') ...[
+            _buildLiveLocationCard(job),
+            const SizedBox(height: 16),
+          ],
           _buildWorkHoursCard(job),
           const SizedBox(height: 16),
           _buildActionCard(status, isCashPending),
@@ -395,6 +456,53 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     );
   }
 
+  Widget _buildLiveLocationCard(Map<String, dynamic> job) {
+    final sharing = job['workerLiveLocationSharing'] == true;
+    final updatedAt = _date(job['workerLiveLocationUpdatedAt']);
+    final distance = _asDouble(job['workerLiveDistanceToServiceMeters']);
+    return WorkableSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('Live arrival tracking'),
+          const SizedBox(height: 10),
+          WorkableInfoRow(
+            icon: sharing ? LucideIcons.navigation : LucideIcons.mapPin,
+            text: sharing
+                ? 'Customer can see your latest arrival status.'
+                : 'Share your location while travelling to the customer.',
+          ),
+          if (updatedAt != null)
+            WorkableInfoRow(
+              icon: LucideIcons.clock,
+              text: 'Last update: ${_formatDateTime(updatedAt)}',
+            ),
+          if (distance != null)
+            WorkableInfoRow(
+              icon: LucideIcons.mapPin,
+              text:
+                  'Distance to service location: ${_formatDistance(distance)}',
+            ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: sharing || _isSharingLocation
+                ? OutlinedButton.icon(
+                    onPressed: _stopLiveLocationSharing,
+                    icon: const Icon(LucideIcons.mapPinOff, size: 18),
+                    label: const Text('Stop Sharing'),
+                  )
+                : FilledButton.icon(
+                    onPressed: _startLiveLocationSharing,
+                    icon: const Icon(LucideIcons.navigation, size: 18),
+                    label: const Text('Share Live Location'),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRestrictedCard() {
     return WorkableSectionCard(
       color: WorkableDesign.warning.withValues(alpha: 0.08),
@@ -553,6 +661,11 @@ class _WorkerJobDetailsScreenState extends State<WorkerJobDetailsScreen> {
     if (hours == 0) return '$rest min';
     if (rest == 0) return '$hours hr';
     return '$hours hr $rest min';
+  }
+
+  String _formatDistance(double meters) {
+    if (meters < 1000) return '${meters.toStringAsFixed(0)} m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
   String _statusLabel(String status) {

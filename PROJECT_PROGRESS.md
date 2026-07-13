@@ -157,6 +157,11 @@ Worker badge, achievement, and certificate tests:
 - Confirm admin fallback start saves `adminStartOverride`, admin id, reason, customer confirmation note, and override timestamp.
 - Confirm admin override screen shows manual-start audit history for customer/admin-started bookings.
 - Confirm worker receives notification when customer/admin starts work on their behalf.
+- Confirm worker can tap `Share Live Location` on accepted/confirmed booking before work starts.
+- Confirm live location sharing saves `workerLiveLocation`, accuracy, distance to service location, sharing state, and updated timestamp.
+- Confirm customer booking detail shows `Worker is on the way`, last update time, and approximate distance.
+- Confirm live location sharing stops automatically when work starts, completion is requested, or booking is cancelled.
+- Confirm worker can manually stop live location sharing before work starts.
 - Tap `Start Work` and confirm `workStartedAt` and `timeline.in_progress` are saved.
 - Tap `Request Completion` and confirm `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested` are saved.
 - Confirm a worker cannot request completion before starting work.
@@ -793,6 +798,12 @@ Growth and marketplace innovation:
       - admin fallback screen now shows manual-start audit details for started bookings
       - customer fallback card now clearly warns that the worker must be physically present
       - backend notifies worker when customer/admin starts work on the worker's behalf
+      - live arrival/location tracking foundation completed:
+        - worker can share live location from worker job detail before work starts
+        - app updates booking with worker live location, accuracy, distance to service location, and timestamp
+        - customer booking detail shows worker arrival status, last update, and approximate distance
+        - worker can stop sharing manually
+        - sharing stops automatically when work starts, completion is requested, or booking is cancelled
       - `Start Work` saves `workStartedAt` and `timeline.in_progress`
       - `Request Completion` now requires `in_progress` status and saves `workCompletedAt`, `completionRequestedAt`, `timeline.work_completed`, and `timeline.completion_requested`
       - worker job detail shows start time, work completed time, and tracked work duration
