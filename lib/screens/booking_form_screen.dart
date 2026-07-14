@@ -244,7 +244,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await BookingRepository().createBooking(
+      final bookingId = await BookingRepository().createBooking(
         BookingDraft(
           issue: _issueController.text.trim(),
           address: _addressController.text.trim(),
@@ -261,6 +261,14 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
         Navigator.pushReplacementNamed(
           context,
           CustomerBookingConfirmationScreen.routeName,
+          arguments: {
+            'bookingId': bookingId,
+            'service': _issueController.text.trim(),
+            'area':
+                _selectedAddress?['area']?.toString() ??
+                _selectedAddress?['addressArea']?.toString() ??
+                '',
+          },
         );
       }
     } catch (e) {

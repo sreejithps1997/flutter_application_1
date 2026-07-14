@@ -10,6 +10,7 @@ import 'package:workable/widgets/workable_ui.dart';
 
 import '../data/community_campaign_repository.dart';
 import '../domain/community_campaign.dart';
+import '../domain/community_campaign_slot.dart';
 
 class CustomerCampaignDetailScreen extends StatefulWidget {
   static const routeName = '/customer-campaign-detail';
@@ -55,6 +56,8 @@ class _CustomerCampaignDetailScreenState
           const SizedBox(height: 14),
           _buildProgressCard(campaign),
           const SizedBox(height: 12),
+          _buildGroupSlotsCard(campaign),
+          const SizedBox(height: 12),
           _buildServiceCard(campaign),
           const SizedBox(height: 12),
           _buildActions(campaign),
@@ -68,6 +71,46 @@ class _CustomerCampaignDetailScreenState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGroupSlotsCard(CommunityCampaign campaign) {
+    return StreamBuilder<List<CommunityCampaignSlot>>(
+      stream: _repository.watchCampaignSlots(campaign.id),
+      builder: (context, snapshot) {
+        final slots = snapshot.data ?? const [];
+        return WorkableSectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const WorkableInfoRow(
+                icon: LucideIcons.calendar,
+                text: 'Popular group slots',
+              ),
+              const SizedBox(height: 10),
+              if (slots.isEmpty)
+                const Text(
+                  'Choose a date and slot after joining. Nearby customers selecting the same service slot will be grouped here.',
+                  style: TextStyle(
+                    color: WorkableDesign.muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              else
+                ...slots.map(
+                  (slot) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: WorkableInfoRow(
+                      icon: LucideIcons.users,
+                      text:
+                          '${slot.joinedCount} ${slot.joinedCount == 1 ? 'home' : 'homes'} • ${slot.label}',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -266,6 +309,11 @@ class _CustomerCampaignDetailScreenState
           : (campaign.serviceCategories.isNotEmpty
                 ? campaign.serviceCategories.first
                 : campaign.name);
+      final slotId = CommunityCampaignRepository.buildSlotId(
+        serviceCategory: requestType,
+        preferredDate: draft.date,
+        preferredTime: draft.time,
+      );
       final helpRequestId = await _helpRequestRepository.createHelpRequest(
         HelpRequestDraft(
           requestType: requestType,
@@ -285,6 +333,8 @@ class _CustomerCampaignDetailScreenState
             'campaignLocation': campaign.location,
             'discountLabel': campaign.discountLabel,
             'joinedCountAtRequest': campaign.joinedCount,
+            'campaignSlotId': slotId,
+            'campaignSlotLabel': '$requestType • ${draft.date} • ${draft.time}',
           },
         ),
       );

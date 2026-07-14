@@ -13,6 +13,12 @@ class AdminReferralReward {
     required this.rewardStatus,
     required this.rewardAmount,
     required this.rewardCurrency,
+    required this.firstPaidBookingAmount,
+    required this.referredCustomerSpend,
+    required this.referredCustomerPaidBookingCount,
+    required this.referrerTotalJoinedSnapshot,
+    required this.referrerCompletedCountSnapshot,
+    required this.referrerAttributedSpendSnapshot,
     this.referredUserEmail,
     this.referredUserPhone,
     this.firstPaidBookingId,
@@ -35,6 +41,12 @@ class AdminReferralReward {
   final String rewardStatus;
   final num rewardAmount;
   final String rewardCurrency;
+  final num firstPaidBookingAmount;
+  final num referredCustomerSpend;
+  final int referredCustomerPaidBookingCount;
+  final int referrerTotalJoinedSnapshot;
+  final int referrerCompletedCountSnapshot;
+  final num referrerAttributedSpendSnapshot;
   final String? referredUserEmail;
   final String? referredUserPhone;
   final String? firstPaidBookingId;
@@ -73,6 +85,20 @@ class AdminReferralReward {
           ? data['rewardAmount'] as num
           : num.tryParse(data['rewardAmount']?.toString() ?? '') ?? 0,
       rewardCurrency: _text(data, 'rewardCurrency', 'INR'),
+      firstPaidBookingAmount: _num(data['firstPaidBookingAmount']),
+      referredCustomerSpend: _num(data['referredCustomerSpend']),
+      referredCustomerPaidBookingCount: _num(
+        data['referredCustomerPaidBookingCount'],
+      ).round(),
+      referrerTotalJoinedSnapshot: _num(
+        data['referrerTotalJoinedSnapshot'],
+      ).round(),
+      referrerCompletedCountSnapshot: _num(
+        data['referrerCompletedCountSnapshot'],
+      ).round(),
+      referrerAttributedSpendSnapshot: _num(
+        data['referrerAttributedSpendSnapshot'],
+      ),
       referredUserEmail: _optionalText(data['referredUserEmail']),
       referredUserPhone: _optionalText(data['referredUserPhone']),
       firstPaidBookingId: _optionalText(data['firstPaidBookingId']),
@@ -99,6 +125,11 @@ class AdminReferralReward {
       return null;
     }
     return text;
+  }
+
+  static num _num(dynamic value) {
+    if (value is num) return value;
+    return num.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   static DateTime? _date(dynamic value) {

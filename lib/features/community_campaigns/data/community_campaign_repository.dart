@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../domain/community_campaign.dart';
+import '../domain/community_campaign_slot.dart';
 
 class CommunityCampaignRepository {
   CommunityCampaignRepository({
@@ -72,6 +73,27 @@ class CommunityCampaignRepository {
         .map((snapshot) => snapshot.exists);
   }
 
+  Stream<List<CommunityCampaignSlot>> watchCampaignSlots(String campaignId) {
+    return _firestore
+        .collection('communityCampaigns')
+        .doc(campaignId)
+        .collection('slots')
+        .orderBy('joinedCount', descending: true)
+        .limit(8)
+        .snapshots()
+        .map((snapshot) {
+          final slots = snapshot.docs
+              .map(CommunityCampaignSlot.fromSnapshot)
+              .toList();
+          slots.sort((a, b) {
+            final count = b.joinedCount.compareTo(a.joinedCount);
+            if (count != 0) return count;
+            return a.label.compareTo(b.label);
+          });
+          return slots;
+        });
+  }
+
   Future<void> joinCampaign(CommunityCampaign campaign) async {
     final user = _auth.currentUser;
     if (user == null) throw StateError('Sign in required.');
@@ -130,18 +152,71 @@ class CommunityCampaignRepository {
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw StateError('Sign in required.');
-    await _firestore
+    final campaignRef = _firestore
         .collection('communityCampaigns')
-        .doc(campaignId)
-        .collection('joins')
-        .doc(user.uid)
-        .set({
-          'status': 'help_request_created',
-          'helpRequestId': helpRequestId,
-          'preferredDate': preferredDate,
-          'preferredTime': preferredTime,
-          'serviceCategory': serviceCategory,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        .doc(campaignId);
+    final joinRef = campaignRef.collection('joins').doc(user.uid);
+    final slotId = buildSlotId(
+      serviceCategory: serviceCategory,
+      preferredDate: preferredDate,
+      preferredTime: preferredTime,
+    );
+    final slotRef = campaignRef.collection('slots').doc(slotId);
+    final now = FieldValue.serverTimestamp();
+
+    await _firestore.runTransaction((transaction) async {
+      final joinSnap = await transaction.get(joinRef);
+      final previousSlotId = joinSnap.data()?['slotId']?.toString();
+      final alreadyInSlot = previousSlotId == slotId;
+      if (previousSlotId != null &&
+          previousSlotId.isNotEmpty &&
+          !alreadyInSlot) {
+        throw StateError(
+          'You already selected a slot for this campaign. Contact support to change it.',
+        );
+      }
+
+      transaction.set(joinRef, {
+        'userId': user.uid,
+        'userName': user.displayName ?? user.email ?? 'Customer',
+        'userPhone': user.phoneNumber ?? '',
+        'campaignId': campaignId,
+        'status': 'help_request_created',
+        'helpRequestId': helpRequestId,
+        'slotId': slotId,
+        'preferredDate': preferredDate,
+        'preferredTime': preferredTime,
+        'serviceCategory': serviceCategory,
+        'updatedAt': now,
+        if (!joinSnap.exists) 'createdAt': now,
+      }, SetOptions(merge: true));
+
+      transaction.set(slotRef, {
+        'campaignId': campaignId,
+        'slotId': slotId,
+        'serviceCategory': serviceCategory,
+        'preferredDate': preferredDate,
+        'preferredTime': preferredTime,
+        'joinedCount': alreadyInSlot
+            ? FieldValue.increment(0)
+            : FieldValue.increment(1),
+        'updatedAt': now,
+        if (!alreadyInSlot) 'createdAt': now,
+      }, SetOptions(merge: true));
+    });
+  }
+
+  static String buildSlotId({
+    required String serviceCategory,
+    required String preferredDate,
+    required String preferredTime,
+  }) {
+    final raw =
+        '${serviceCategory.trim()}_${preferredDate.trim()}_${preferredTime.trim()}'
+            .toLowerCase();
+    return raw
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
   }
 }

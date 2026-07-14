@@ -9,6 +9,96 @@ This file is the local project memory for the Workable app. Read this before sta
 - Prefer upgrading existing flows, connecting real Firestore data, and removing dummy behavior over adding duplicate screens.
 - After finishing a meaningful change, update this file with what changed and what should happen next.
 
+## MVP Freeze Checklist
+
+Status: active from now until first beta/public launch.
+
+Rule:
+- Do not add broad new features to Workable until the MVP checklist below is complete.
+- New ideas go into the feature backlog, not active development.
+- Only build or change things that directly improve launch safety, broken flow completion, testing readiness, or release readiness.
+- The reminder/diary/life-assistant app idea is a separate future product and should not be mixed into Workable before Workable beta launch.
+
+Launch goal:
+- Workable should first launch as a trusted local service/help marketplace.
+- The first release does not need every global/AI/growth feature.
+- The first release must be reliable enough for real customers, workers, admin review, and payment trust.
+
+MVP must-have flows:
+- Customer signup/login works with phone/auth and basic profile.
+- Worker signup/login works with staged onboarding.
+- Worker verification and visibility gate works.
+- Customer dashboard opens without broken routes.
+- Customer can search/select a service or create a help request.
+- Customer can create a normal booking.
+- Worker can receive/open jobs.
+- Worker can accept or reject jobs.
+- Worker can start work with same-location protection or approved customer/admin override.
+- Customer receives start-work notification/state.
+- Worker can request work completion.
+- Customer can confirm or dispute completion.
+- Customer can pay by cash or report UPI payment.
+- Worker can confirm cash received.
+- Admin can approve/reject reported UPI/payment issues.
+- Booking moves cleanly to completed/paid.
+- Worker earnings update from completed paid work.
+- Worker can request payout.
+- Admin can approve/reject payout.
+- Notifications inbox and push routing work for booking/payment/help/review-critical actions.
+- Customer and worker can use messages/chat for active work.
+- Admin can review verification, payments, payouts, disputes, demand, referrals, and campaign basics.
+- Referral sharing/audit basics work, but advanced rewards can wait.
+- Community campaign join/slot basics work, but coupon calculator can wait unless needed for launch.
+
+MVP launch blockers to fix before real testing/release:
+- Harden Firestore rules for booking, help request, payment, payout, and notification state transitions.
+- Move any high-trust cross-user writes that remain client-side into Cloud Functions.
+- Fix full `dart analyze` warnings that can cause real logic/runtime issues, especially network connectivity handling.
+- Remove or hide developer/test screens from production navigation.
+- Confirm all account menu links open valid screens.
+- Confirm no critical screen depends on dummy-only data.
+- Confirm old direct help-request actions do not conflict with linked booking/payment flow.
+- Confirm payment and payout Cloud Functions are deployed and callable.
+- Confirm FCM push notification tap routing opens correct screens.
+- Confirm worker start-work same-location flow works on real phone GPS.
+- Confirm customer dashboard location popup and booking default address behavior works.
+- Confirm admin role permissions are enough for support/payment/verification tasks.
+
+Manual testing checklist for July 19:
+- Customer signup/login on real phone.
+- Worker signup/login on real phone.
+- Customer saves location/address from dashboard popup.
+- Customer creates booking from saved/default address.
+- Worker accepts booking.
+- Worker tries start work away from location and is blocked.
+- Worker starts work at correct location.
+- Customer receives work-start update.
+- Worker requests completion.
+- Customer confirms completion.
+- Customer tests cash flow.
+- Worker confirms cash received.
+- Customer tests UPI reported-payment flow.
+- Admin approves/rejects UPI reported payment.
+- Worker earnings and payout request flow.
+- Admin payout approve/reject flow.
+- Help request create -> worker accept -> linked booking opens.
+- Campaign slot join -> help request created with campaign slot metadata.
+- Referral share -> signup attribution -> paid booking reward audit.
+- Push notification received and tap opens correct screen.
+- Chat/message opens for customer and worker.
+
+After-launch backlog, not MVP:
+- Advanced AI photo/video/voice diagnosis.
+- Full AI Smart Booking automation.
+- Neighbourhood coupon/profit calculator.
+- Worker certificates and public verification pages.
+- Worker achievement share cards.
+- Full multilingual/currency/country launch system.
+- Tax/invoice automation.
+- Feature flags by city.
+- Advanced campaign analytics.
+- Mood/diary/reminder assistant app as a separate future product.
+
 ## Product Direction
 
 Workable is evolving into a trusted local help marketplace.
@@ -168,6 +258,9 @@ Referral growth/audit tests:
 - Copy invite and copy code, then confirm share counters update in the Share audit card.
 - Confirm Total joined, Customers, Workers, Pending, Reward audit, People joined, and Referral history match Firestore `referrals` records.
 - Confirm referral share counters are only visible for the signed-in referrer/admin through rules.
+- After a booking is submitted, confirm Neighbourhood Deal card appears on confirmation screen.
+- Tap WhatsApp/copy from Neighbourhood Deal and confirm `neighbourhoodDealShares` records booking id, service, area, referral code, channel, and referrer id.
+- After referred customer's paid booking completes, confirm admin referral reward card shows first paid booking amount, total referred spend, and paid booking count.
 
 Community campaign tests:
 - Admin creates an active campaign and confirms it appears in the customer dashboard campaign strip.
@@ -175,6 +268,11 @@ Community campaign tests:
 - Detail screen shows location, discount, service categories, joined homes, remaining slots, and group-price progress.
 - Customer taps Join Campaign and confirms a `communityCampaigns/{id}/joins/{uid}` record is created.
 - Confirm campaign `joinedCount` increments only once for the same user.
+- Customer chooses service/date/time and creates a campaign request; confirm `communityCampaigns/{id}/slots/{slotId}` is created with the matching service/date/time and `joinedCount`.
+- Confirm customers choosing the same service/date/time join the same slot and the slot count increments.
+- Confirm a customer cannot switch to a different campaign slot after selecting one without admin/support handling.
+- Confirm the help request `sourceMetadata` stores `campaignId`, `campaignSlotId`, campaign location, and discount label.
+- Confirm the campaign detail page shows popular group slots without exposing exact addresses.
 - Confirm customer cannot edit campaign content and can only increment `joinedCount` by one through rules.
 - Tap WhatsApp/share copy and confirm `communityCampaignShares` records are created.
 - Confirm exact customer addresses are never shown in campaign counts or share copy.
@@ -1137,10 +1235,17 @@ Growth and marketplace innovation:
       - signed-in users can only increment `joinedCount` by one and update `updatedAt`
       - campaign content remains admin-only
       - campaign share events are append-only for the signed-in sharer
+    - Group slot joining added:
+      - `lib/features/community_campaigns/domain/community_campaign_slot.dart`
+      - campaign detail now shows popular service/date/time slots
+      - customer-created campaign help requests store `campaignSlotId` and slot label in `sourceMetadata`
+      - selected slots are tracked under `communityCampaigns/{campaignId}/slots/{slotId}`
+      - customers joining the same service/date/time increment the same slot counter
+      - customers cannot move between slots and inflate group counts without support/admin handling
     - Next campaign hardening:
-      - convert joined campaign into actual booking/help request with date/slot selection
       - location targeting by city/apartment
       - group discount tier unlocks
+      - admin calculator for coupon/discount amount after net-profit review
       - admin analytics for campaign conversion
   - AI Feature Backlog:
     - AI Problem-to-Solution Camera:
@@ -3458,8 +3563,8 @@ Highest priority pending work:
    - Why this matters: viral growth fails if signup creates friction.
 
 4. Referral and sharing growth system
-   - Completed enough to move on: customer/worker referral programme screen, referral audit counters, share-channel counters, referral history, reward audit, and admin referral reward screen exist.
-   - Later hardening: share worker profile, demand category, and campaign invite links; campaign-based referral rewards; fraud checks for abnormal sharing/reward patterns.
+   - Completed enough to move on: customer/worker referral programme screen, referral audit counters, share-channel counters, referral history, reward audit, admin referral reward screen, Neighbourhood Deal share card after booking, and admin referral spend audit fields exist.
+   - Later hardening: share worker profile, demand category, and campaign invite links; campaign-based referral rewards; fraud checks for abnormal sharing/reward patterns; admin business-rule calculator for discount/coupon amount after net-profit review.
    - Why this matters: this is the zero-cost growth engine.
 
 5. Community campaign foundation

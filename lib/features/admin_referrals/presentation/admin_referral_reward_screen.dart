@@ -256,6 +256,25 @@ class _AdminReferralRewardScreenState
                 text: 'First paid booking: ${referral.firstPaidBookingId}',
               ),
             ],
+            if (referral.firstPaidBookingAmount > 0 ||
+                referral.referredCustomerSpend > 0) ...[
+              const SizedBox(height: 8),
+              WorkableInfoRow(
+                icon: LucideIcons.walletCards,
+                text:
+                    'Spend audit: first booking ${_currency.format(referral.firstPaidBookingAmount)}, total referred spend ${_currency.format(referral.referredCustomerSpend)} across ${referral.referredCustomerPaidBookingCount} paid booking${referral.referredCustomerPaidBookingCount == 1 ? '' : 's'}.',
+              ),
+            ],
+            if (referral.referrerTotalJoinedSnapshot > 0 ||
+                referral.referrerCompletedCountSnapshot > 0 ||
+                referral.referrerAttributedSpendSnapshot > 0) ...[
+              const SizedBox(height: 8),
+              WorkableInfoRow(
+                icon: LucideIcons.network,
+                text:
+                    'Referrer impact: ${referral.referrerTotalJoinedSnapshot} joined, ${referral.referrerCompletedCountSnapshot} completed, ${_currency.format(referral.referrerAttributedSpendSnapshot)} attributed spend.',
+              ),
+            ],
             const SizedBox(height: 8),
             WorkableInfoRow(
               icon: LucideIcons.calendarClock,

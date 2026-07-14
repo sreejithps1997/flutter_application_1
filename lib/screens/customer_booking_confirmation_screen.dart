@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../core/theme/workable_design.dart';
+import '../features/neighbourhood_deals/presentation/neighbourhood_deal_card.dart';
 import '../widgets/workable_ui.dart';
 import 'customer_dashboard_screen.dart';
 
@@ -20,6 +21,12 @@ class CustomerBookingConfirmationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    final data = args is Map ? args : const {};
+    final bookingId = data['bookingId']?.toString() ?? '';
+    final service = data['service']?.toString() ?? '';
+    final area = data['area']?.toString() ?? '';
+
     return Scaffold(
       backgroundColor: WorkableDesign.canvas,
       appBar: AppBar(
@@ -54,6 +61,12 @@ class CustomerBookingConfirmationScreen extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 16),
+            NeighbourhoodDealCard(
+              bookingId: bookingId,
+              service: service,
+              area: area,
             ),
             const SizedBox(height: 18),
             FilledButton.icon(

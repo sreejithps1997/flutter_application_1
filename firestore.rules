@@ -392,12 +392,30 @@ service cloud.firestore {
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status',
             'helpRequestId',
+            'slotId',
             'preferredDate',
             'preferredTime',
             'serviceCategory',
             'updatedAt'
           ]);
         allow delete: if false;
+      }
+
+      match /slots/{slotId} {
+        allow read: if signedIn();
+        allow create: if signedIn() &&
+          request.resource.data.joinedCount == 1;
+        allow update: if isAdmin() ||
+          (
+            signedIn() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['joinedCount', 'updatedAt']) &&
+            (
+              request.resource.data.joinedCount == resource.data.joinedCount ||
+              request.resource.data.joinedCount == resource.data.joinedCount + 1
+            )
+          );
+        allow delete: if isAdmin();
       }
     }
 
@@ -407,6 +425,14 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.sharedBy == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    match /neighbourhoodDealShares/{shareId} {
+      allow read: if isAdmin() ||
+        (signedIn() && resource.data.referrerId == request.auth.uid);
+      allow create: if signedIn() &&
+        request.resource.data.referrerId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
 
     match /adminAuditLogs/{logId} {

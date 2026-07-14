@@ -464,7 +464,7 @@ async function createReferralConversionForUser(uid, userData) {
   return batch.commit();
 }
 
-async function unlockReferralRewardForCustomer({customerId, bookingId}) {
+async function unlockReferralRewardForCustomer({customerId, bookingId, booking}) {
   if (!customerId || !bookingId) return null;
 
   const snapshot = await db
@@ -481,8 +481,23 @@ async function unlockReferralRewardForCustomer({customerId, bookingId}) {
   if (!referrerId) return null;
 
   const rewardAmount = 50;
+  const bookingAmount = Number(
+    booking && (
+      booking.finalAmount ||
+      booking.totalAmount ||
+      booking.amountPaid ||
+      booking.price ||
+      booking.estimatedPrice ||
+      0
+    )
+  ) || 0;
   const now = admin.firestore.FieldValue.serverTimestamp();
   const referrerRef = db.collection("users").doc(referrerId);
+  const referrerSnapshot = await referrerRef.get();
+  const referrer = referrerSnapshot.data() || {};
+  const referrerSignupCount = Number(referrer.referralSignupCount || 0);
+  const referrerCompletedCount = Number(referrer.referralCompletedCount || 0);
+  const referrerSpend = Number(referrer.referralAttributedSpend || 0);
   const batch = db.batch();
 
   batch.set(referralDoc.ref, {
@@ -491,11 +506,19 @@ async function unlockReferralRewardForCustomer({customerId, bookingId}) {
     rewardAmount,
     rewardCurrency: "INR",
     firstPaidBookingId: bookingId,
+    firstPaidBookingAmount: bookingAmount,
+    referredCustomerSpend: bookingAmount,
+    referredCustomerPaidBookingCount: admin.firestore.FieldValue.increment(1),
+    referrerTotalJoinedSnapshot: referrerSignupCount,
+    referrerCompletedCountSnapshot: referrerCompletedCount + 1,
+    referrerAttributedSpendSnapshot: referrerSpend + bookingAmount,
     completedAt: now,
     updatedAt: now,
   }, {merge: true});
   batch.set(referrerRef, {
     referralCompletedCount: admin.firestore.FieldValue.increment(1),
+    referralAttributedSpend: admin.firestore.FieldValue.increment(bookingAmount),
+    referralPaidBookingCount: admin.firestore.FieldValue.increment(1),
     referralRewardPendingAmount: admin.firestore.FieldValue.increment(rewardAmount),
     lastReferralRewardAt: now,
     updatedAt: now,
@@ -519,6 +542,7 @@ async function unlockReferralRewardForCustomer({customerId, bookingId}) {
         referredUserId: customerId,
         bookingId,
         rewardAmount: String(rewardAmount),
+        bookingAmount: String(bookingAmount),
         userRole: "customer",
       },
       isRead: false,
@@ -2978,6 +3002,7 @@ exports.notifyCustomerToReviewBooking = functions.firestore
       tasks.push(unlockReferralRewardForCustomer({
         customerId,
         bookingId,
+        booking: after,
       }));
     }
 
