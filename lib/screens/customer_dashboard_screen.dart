@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../widgets/custom_button.dart';
@@ -37,6 +38,8 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
   double maxHourlyRate = 10000;
   double maxDistance = 10000;
   Position? currentPosition;
+  bool _locationPromptShown = false;
+  bool _savingLocation = false;
 
   int _selectedIndex = 0;
 
@@ -100,7 +103,158 @@ class _CustomerDashboardScreenState extends State<CustomerDashboardScreen> {
           );
         }
       });
+      await _maybePromptForLocation(uid, data);
     }
+  }
+
+  Future<void> _maybePromptForLocation(
+    String uid,
+    Map<String, dynamic> userData,
+  ) async {
+    if (_locationPromptShown || !mounted) return;
+    if (userData['location'] is GeoPoint) return;
+    if (userData['locationPromptDismissedAt'] != null) return;
+
+    final addresses = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('addresses')
+        .limit(1)
+        .get();
+    if (!mounted || addresses.docs.isNotEmpty) return;
+
+    _locationPromptShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showLocationOnboardingDialog(uid);
+    });
+  }
+
+  Future<void> _showLocationOnboardingDialog(String uid) async {
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Save your service location?'),
+          content: const Text(
+            'Save your current location once so bookings can start faster and workers can reach the exact place.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'later'),
+              child: const Text('Later'),
+            ),
+            FilledButton.icon(
+              onPressed: _savingLocation
+                  ? null
+                  : () => Navigator.pop(dialogContext, 'save'),
+              icon: const Icon(Icons.my_location_outlined),
+              label: const Text('Save Location'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (action == 'save') {
+      await _saveCurrentLocationAsDefault(uid);
+    } else if (action == 'later') {
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'locationPromptDismissedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> _saveCurrentLocationAsDefault(String uid) async {
+    if (_savingLocation) return;
+    setState(() => _savingLocation = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!serviceEnabled) {
+        _showSnack('Please enable location services.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (!mounted) return;
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showSnack('Location permission denied.');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      final place = placemarks.isNotEmpty ? placemarks.first : null;
+      final addressText = [
+        place?.street,
+        place?.locality,
+        place?.administrativeArea,
+        place?.postalCode,
+      ].where((part) => (part ?? '').trim().isNotEmpty).join(', ');
+      final point = GeoPoint(position.latitude, position.longitude);
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final addressRef = userRef.collection('addresses').doc();
+      final now = FieldValue.serverTimestamp();
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        transaction.set(userRef, {
+          'location': point,
+          'address': addressText,
+          'area': place?.locality ?? '',
+          'pincode': place?.postalCode ?? '',
+          'locationSavedAt': now,
+          'updatedAt': now,
+        }, SetOptions(merge: true));
+        transaction.set(addressRef, {
+          'id': addressRef.id,
+          'type': 'home',
+          'label': 'home',
+          'address': addressText.isEmpty ? 'Current GPS location' : addressText,
+          'area': place?.locality ?? '',
+          'pincode': place?.postalCode ?? '',
+          'landmark': '',
+          'contact': '',
+          'alternateContact': '',
+          'instructions': '',
+          'isDefault': true,
+          'allowLateNight': false,
+          'safetyRating': 'standard',
+          'isVerified': true,
+          'lastUsed': 'Just now',
+          'source': 'dashboard_location_prompt',
+          'createdAt': now,
+          'updatedAt': now,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'location': point,
+        });
+      });
+
+      if (!mounted) return;
+      setState(() => currentPosition = position);
+      _showSnack('Location saved for faster bookings.');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Unable to save location. You can add it during booking.');
+    } finally {
+      if (mounted) setState(() => _savingLocation = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _fetchSkills() async {

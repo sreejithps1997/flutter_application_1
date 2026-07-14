@@ -152,6 +152,9 @@ Signup referral attribution tests:
 - Confirm customer `users/{uid}` stores `signupMode: phone_only`, `authProvider: phone`, `phoneVerified: true`, and phone identity verification status.
 - After phone-only signup with no saved address, open normal booking form, tap `Use current location`, and confirm booking stores `addressLocation`, latitude, and longitude.
 - Confirm worker start-work same-location rule works for a booking created from current-location capture.
+- After phone-only signup with no location/address, open customer dashboard and confirm the location-save popup appears once.
+- Confirm dashboard `Save Location` stores `users/{uid}.location`, address text, pincode when available, and a default document in `users/{uid}/addresses`.
+- Confirm booking form auto-selects the default saved address and asks whether to use same location, add details, or choose a different address.
 - Continue as worker and confirm the worker signup referral field auto-fills the saved code.
 - Complete worker signup and confirm worker referral attribution is saved before onboarding continues.
 - Confirm the pending referral code is consumed only after successful signup and not lost on failed validation.

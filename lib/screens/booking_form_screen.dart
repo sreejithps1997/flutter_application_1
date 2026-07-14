@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import '../core/theme/workable_design.dart';
@@ -32,6 +33,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   bool _isLoading = false;
   bool _isLocating = false;
   bool _didApplyRouteAddress = false;
+  bool _didLoadDefaultAddress = false;
   Map<String, dynamic>? _selectedAddress;
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
@@ -45,6 +47,8 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     if (args is Map && args['selectedAddress'] is Map) {
       final address = Map<String, dynamic>.from(args['selectedAddress'] as Map);
       _applySelectedAddress(address);
+    } else {
+      _loadDefaultAddressPrompt();
     }
 
     _didApplyRouteAddress = true;
@@ -105,6 +109,71 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     if (updatedAddress == null || !mounted) return;
 
     setState(() => _applySelectedAddress(updatedAddress));
+  }
+
+  Future<void> _loadDefaultAddressPrompt() async {
+    if (_didLoadDefaultAddress) return;
+    _didLoadDefaultAddress = true;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('addresses')
+        .where('isDefault', isEqualTo: true)
+        .limit(1)
+        .get();
+    if (!mounted || snapshot.docs.isEmpty) return;
+
+    final address = {
+      ...snapshot.docs.first.data(),
+      'id': snapshot.docs.first.id,
+    };
+    setState(() => _applySelectedAddress(address));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _askUseDefaultAddress();
+    });
+  }
+
+  Future<void> _askUseDefaultAddress() async {
+    final address = _selectedAddress;
+    if (address == null) return;
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Use this service location?'),
+          content: Text(
+            _formatSelectedAddress(address).isEmpty
+                ? 'Use your saved default location for this booking?'
+                : _formatSelectedAddress(address),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'different'),
+              child: const Text('Different Address'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'edit'),
+              child: const Text('Add Details'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'same'),
+              child: const Text('Yes, Continue'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+    if (action == 'different') {
+      await _openAddressSelector();
+    } else if (action == 'edit') {
+      await _openSelectedAddressDetails();
+    }
   }
 
   Future<void> _useCurrentLocation() async {
