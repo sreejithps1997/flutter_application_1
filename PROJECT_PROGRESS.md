@@ -146,7 +146,10 @@ Testing rule:
 Signup referral attribution tests:
 - Open a shared invite link with `?ref=CODE` and confirm the invite landing page saves the pending referral code.
 - Continue as customer and confirm the customer signup referral field auto-fills the saved code.
+- Complete customer signup using only phone OTP plus optional name/email/address and confirm no password is required.
+- Confirm phone OTP verification keeps the Firebase phone user signed in until `users/{uid}` profile completion succeeds.
 - Complete customer signup and confirm `users/{uid}.referredByCode`, `referralStatus`, `referralSource`, and backend referral conversion are created.
+- Confirm customer `users/{uid}` stores `signupMode: phone_only`, `authProvider: phone`, `phoneVerified: true`, and phone identity verification status.
 - Continue as worker and confirm the worker signup referral field auto-fills the saved code.
 - Complete worker signup and confirm worker referral attribution is saved before onboarding continues.
 - Confirm the pending referral code is consumed only after successful signup and not lost on failed validation.
@@ -3444,8 +3447,9 @@ Highest priority pending work:
    - Why this is second: payment mistakes create the fastest loss of trust.
 
 3. Simplified signup conversion
-   - Completed enough to move on: referral-code auto-fill is shared through `features/signup_referral`, customer signup remains light, worker signup remains staged, and backend referral conversion contract is preserved.
-   - Later hardening: move more signup form state into providers and reduce customer signup fields further after phone-only login decision is finalized.
+   - Completed enough to move on: referral-code auto-fill is shared through `features/signup_referral`, customer signup now has a phone-only Riverpod-backed path, customer name/email/address are optional progressive-profile fields, worker signup remains staged, and backend referral conversion contract is preserved.
+   - Added `features/customer_signup` with repository/controller/state so OTP state and customer profile completion no longer live directly inside the screen.
+   - Later hardening: add phone-OTP login for existing customers, link optional Google/email credentials to the phone account instead of treating them as the main signup path, and move worker signup OTP state into a matching provider.
    - Why this matters: viral growth fails if signup creates friction.
 
 4. Referral and sharing growth system
