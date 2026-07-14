@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import '../core/theme/workable_design.dart';
 import '../features/bookings/data/booking_repository.dart';
 import '../features/bookings/domain/booking_draft.dart';
@@ -27,6 +30,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   final _addressController = TextEditingController();
 
   bool _isLoading = false;
+  bool _isLocating = false;
   bool _didApplyRouteAddress = false;
   Map<String, dynamic>? _selectedAddress;
   DateTime? _selectedDate;
@@ -103,6 +107,68 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     setState(() => _applySelectedAddress(updatedAddress));
   }
 
+  Future<void> _useCurrentLocation() async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!serviceEnabled) {
+        _showMessage('Please enable location services.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (!mounted) return;
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showMessage('Location permission denied.');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      final place = placemarks.isNotEmpty ? placemarks.first : null;
+      final addressText = [
+        place?.street,
+        place?.locality,
+        place?.administrativeArea,
+        place?.postalCode,
+      ].where((part) => (part ?? '').trim().isNotEmpty).join(', ');
+
+      final address = <String, dynamic>{
+        'id': 'current_location',
+        'label': 'Current location',
+        'type': 'Current',
+        'address': addressText.isEmpty ? 'Current GPS location' : addressText,
+        'area': place?.locality ?? '',
+        'landmark': '',
+        'pincode': place?.postalCode ?? '',
+        'contact': '',
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'location': GeoPoint(position.latitude, position.longitude),
+        'isVerified': true,
+      };
+      if (!mounted) return;
+      setState(() => _applySelectedAddress(address));
+      _showMessage('Current location added for this booking.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Unable to get location. Choose a saved address instead.');
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
   Future<void> _submitBooking() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -151,6 +217,12 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       return 'Failed to submit booking. Please try again.';
     }
     return message;
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -619,6 +691,62 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                                 val == null || val.trim().isEmpty
                                 ? "Address is required"
                                 : null,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _isLocating
+                                      ? null
+                                      : _useCurrentLocation,
+                                  icon: _isLocating
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.my_location_outlined),
+                                  label: Text(
+                                    _isLocating
+                                        ? 'Getting location...'
+                                        : 'Use current location',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _openAddressSelector,
+                                  icon: const Icon(Icons.bookmark_outline),
+                                  label: const Text('Saved addresses'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color: WorkableDesign.muted,
+                              ),
+                              const SizedBox(width: 6),
+                              const Expanded(
+                                child: Text(
+                                  'A map location helps workers start work only after reaching the service place.',
+                                  style: TextStyle(
+                                    color: WorkableDesign.muted,
+                                    fontSize: 12,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           if (_selectedAddress != null) ...[
                             const SizedBox(height: 12),

@@ -150,6 +150,8 @@ Signup referral attribution tests:
 - Confirm phone OTP verification keeps the Firebase phone user signed in until `users/{uid}` profile completion succeeds.
 - Complete customer signup and confirm `users/{uid}.referredByCode`, `referralStatus`, `referralSource`, and backend referral conversion are created.
 - Confirm customer `users/{uid}` stores `signupMode: phone_only`, `authProvider: phone`, `phoneVerified: true`, and phone identity verification status.
+- After phone-only signup with no saved address, open normal booking form, tap `Use current location`, and confirm booking stores `addressLocation`, latitude, and longitude.
+- Confirm worker start-work same-location rule works for a booking created from current-location capture.
 - Continue as worker and confirm the worker signup referral field auto-fills the saved code.
 - Complete worker signup and confirm worker referral attribution is saved before onboarding continues.
 - Confirm the pending referral code is consumed only after successful signup and not lost on failed validation.
