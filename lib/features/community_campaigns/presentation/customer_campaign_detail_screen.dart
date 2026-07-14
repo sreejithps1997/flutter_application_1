@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:workable/core/theme/workable_design.dart';
+import 'package:workable/features/help_requests/data/help_request_repository.dart';
+import 'package:workable/features/help_requests/domain/help_request_draft.dart';
+import 'package:workable/features/help_requests/presentation/customer_help_request_detail_screen.dart';
 import 'package:workable/widgets/workable_ui.dart';
 
 import '../data/community_campaign_repository.dart';
@@ -21,6 +24,7 @@ class CustomerCampaignDetailScreen extends StatefulWidget {
 class _CustomerCampaignDetailScreenState
     extends State<CustomerCampaignDetailScreen> {
   final _repository = CommunityCampaignRepository();
+  final _helpRequestRepository = HelpRequestRepository();
   bool _busy = false;
 
   @override
@@ -192,6 +196,19 @@ class _CustomerCampaignDetailScreenState
                   ),
                 ),
               ),
+              if (joined) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => _createCampaignHelpRequest(campaign),
+                    icon: const Icon(LucideIcons.calendarClock, size: 18),
+                    label: const Text('Choose Slot & Request Service'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -226,10 +243,68 @@ class _CustomerCampaignDetailScreenState
     try {
       await _repository.joinCampaign(campaign);
       if (!mounted) return;
-      _showSnack('Campaign joined. We will notify you when slots open.');
+      _showSnack('Campaign joined. Choose a slot to request service.');
     } catch (error) {
       if (!mounted) return;
       _showSnack('Unable to join campaign: $error', isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _createCampaignHelpRequest(CommunityCampaign campaign) async {
+    final draft = await showDialog<_CampaignRequestDraft>(
+      context: context,
+      builder: (_) => _CampaignRequestDialog(campaign: campaign),
+    );
+    if (draft == null) return;
+
+    setState(() => _busy = true);
+    try {
+      final requestType = draft.serviceCategory.isNotEmpty
+          ? draft.serviceCategory
+          : (campaign.serviceCategories.isNotEmpty
+                ? campaign.serviceCategories.first
+                : campaign.name);
+      final helpRequestId = await _helpRequestRepository.createHelpRequest(
+        HelpRequestDraft(
+          requestType: requestType,
+          title: campaign.name,
+          description:
+              '${campaign.message}\n\nCampaign: ${campaign.name}\nArea: ${campaign.location}\nOffer: ${campaign.discountLabel}',
+          pickupAddress: draft.address,
+          destinationAddress: '',
+          urgency: 'Normal',
+          preferredDate: draft.date,
+          preferredTime: draft.time,
+          budget: null,
+          source: 'community_campaign',
+          sourceMetadata: {
+            'campaignId': campaign.id,
+            'campaignName': campaign.name,
+            'campaignLocation': campaign.location,
+            'discountLabel': campaign.discountLabel,
+            'joinedCountAtRequest': campaign.joinedCount,
+          },
+        ),
+      );
+      await _repository.linkJoinToHelpRequest(
+        campaignId: campaign.id,
+        helpRequestId: helpRequestId,
+        preferredDate: draft.date,
+        preferredTime: draft.time,
+        serviceCategory: requestType,
+      );
+      if (!mounted) return;
+      _showSnack('Service request created from campaign.');
+      Navigator.pushNamed(
+        context,
+        CustomerHelpRequestDetailScreen.routeName,
+        arguments: {'requestId': helpRequestId},
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('Unable to create request: $error', isError: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -263,5 +338,159 @@ class _CustomerCampaignDetailScreenState
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+}
+
+class _CampaignRequestDraft {
+  const _CampaignRequestDraft({
+    required this.address,
+    required this.date,
+    required this.time,
+    required this.serviceCategory,
+  });
+
+  final String address;
+  final String date;
+  final String time;
+  final String serviceCategory;
+}
+
+class _CampaignRequestDialog extends StatefulWidget {
+  const _CampaignRequestDialog({required this.campaign});
+
+  final CommunityCampaign campaign;
+
+  @override
+  State<_CampaignRequestDialog> createState() => _CampaignRequestDialogState();
+}
+
+class _CampaignRequestDialogState extends State<_CampaignRequestDialog> {
+  final _addressController = TextEditingController();
+  final _dateController = TextEditingController();
+  String _time = 'Morning';
+  late String _serviceCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _serviceCategory = widget.campaign.serviceCategories.isNotEmpty
+        ? widget.campaign.serviceCategories.first
+        : widget.campaign.name;
+  }
+
+  @override
+  void dispose() {
+    _addressController.dispose();
+    _dateController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Choose Campaign Slot'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              value: _serviceCategory,
+              decoration: const InputDecoration(
+                labelText: 'Service',
+                border: OutlineInputBorder(),
+              ),
+              items:
+                  (widget.campaign.serviceCategories.isEmpty
+                          ? [widget.campaign.name]
+                          : widget.campaign.serviceCategories)
+                      .map(
+                        (category) => DropdownMenuItem(
+                          value: category,
+                          child: Text(category),
+                        ),
+                      )
+                      .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _serviceCategory = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _addressController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Service address',
+                hintText: 'House/apartment, area, landmark',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dateController,
+              readOnly: true,
+              decoration: const InputDecoration(
+                labelText: 'Preferred date',
+                border: OutlineInputBorder(),
+                suffixIcon: Icon(LucideIcons.calendar),
+              ),
+              onTap: _pickDate,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _time,
+              decoration: const InputDecoration(
+                labelText: 'Preferred slot',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'Morning', child: Text('Morning')),
+                DropdownMenuItem(value: 'Afternoon', child: Text('Afternoon')),
+                DropdownMenuItem(value: 'Evening', child: Text('Evening')),
+                DropdownMenuItem(value: 'Flexible', child: Text('Flexible')),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _time = value);
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final address = _addressController.text.trim();
+            final date = _dateController.text.trim();
+            if (address.length < 6 || date.isEmpty) return;
+            Navigator.pop(
+              context,
+              _CampaignRequestDraft(
+                address: address,
+                date: date,
+                time: _time,
+                serviceCategory: _serviceCategory,
+              ),
+            );
+          },
+          child: const Text('Create Request'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 45)),
+      initialDate: now.add(const Duration(days: 1)),
+    );
+    if (selected == null) return;
+    _dateController.text =
+        '${selected.year.toString().padLeft(4, '0')}-${selected.month.toString().padLeft(2, '0')}-${selected.day.toString().padLeft(2, '0')}';
   }
 }

@@ -388,7 +388,16 @@ service cloud.firestore {
       match /joins/{uid} {
         allow read: if isOwner(uid) || isAdmin();
         allow create: if isOwner(uid);
-        allow update, delete: if false;
+        allow update: if isOwner(uid) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'helpRequestId',
+            'preferredDate',
+            'preferredTime',
+            'serviceCategory',
+            'updatedAt'
+          ]);
+        allow delete: if false;
       }
     }
 

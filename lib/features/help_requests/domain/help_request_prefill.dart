@@ -33,6 +33,15 @@ class HelpRequestPrefill {
     return 'General help';
   }
 
+  String get normalizedUrgency {
+    final value = urgency.toLowerCase().trim();
+    if (value.contains('urgent') || value.contains('emergency')) {
+      return 'Urgent';
+    }
+    if (value.contains('today') || value.contains('same day')) return 'Today';
+    return 'Normal';
+  }
+
   String get title {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return category;
@@ -65,12 +74,35 @@ class HelpRequestPrefill {
     return aiDiagnosis?['safetyNote']?.toString().trim() ?? '';
   }
 
+  List<String> get suggestedQuestions {
+    final questions = aiDiagnosis?['questions'];
+    if (questions is! List) return const [];
+    return questions
+        .map((question) => question.toString().trim())
+        .where((question) => question.isNotEmpty)
+        .toList();
+  }
+
+  String get aiSummary => _aiSummary;
+
+  String get aiPriceRange => _aiPriceRange;
+
+  String get aiSafetyNote => _aiSafetyNote;
+
+  String get aiConfidence {
+    return aiDiagnosis?['confidence']?.toString().trim() ?? '';
+  }
+
+  String get aiRecommendedPath {
+    return aiDiagnosis?['recommendedPath']?.toString().trim() ?? '';
+  }
+
   Map<String, dynamic> toMetadata() {
     return {
       'source': source,
       'query': query,
       'category': category,
-      'urgency': urgency,
+      'urgency': normalizedUrgency,
       if (demandSignalId != null) 'demandSignalId': demandSignalId,
       if (city != null) 'city': city,
       if (aiDiagnosis != null) 'aiDiagnosis': aiDiagnosis,

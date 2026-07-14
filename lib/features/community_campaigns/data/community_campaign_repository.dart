@@ -120,4 +120,28 @@ class CommunityCampaignRepository {
       'updatedAt': now,
     });
   }
+
+  Future<void> linkJoinToHelpRequest({
+    required String campaignId,
+    required String helpRequestId,
+    required String preferredDate,
+    required String preferredTime,
+    required String serviceCategory,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Sign in required.');
+    await _firestore
+        .collection('communityCampaigns')
+        .doc(campaignId)
+        .collection('joins')
+        .doc(user.uid)
+        .set({
+          'status': 'help_request_created',
+          'helpRequestId': helpRequestId,
+          'preferredDate': preferredDate,
+          'preferredTime': preferredTime,
+          'serviceCategory': serviceCategory,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+  }
 }

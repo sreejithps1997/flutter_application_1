@@ -235,12 +235,16 @@ Smart Booking and AI tests:
   - confirm Help Request option opens prefilled form
 - Smart Booking to Help Request prefill:
   - confirm title, description, request type, and urgency are prefilled
+  - confirm local Smart Booking opens Help Request with a visible Smart Booking plan card
+  - confirm plan card shows local category, urgency, recommendation path, and confirmation questions before submission
   - create the help request
   - confirm Firestore stores `source: smart_booking`
   - confirm `sourceMetadata` stores query/category/urgency/demand/city context
   - after Deeper Diagnosis, confirm Help Request prefill uses AI category and urgency instead of only local category and urgency
+  - after Deeper Diagnosis, confirm Smart Booking plan card shows AI summary, confidence, recommended path, questions, price range, and safety note
   - after Deeper Diagnosis, confirm Help Request description includes AI summary, price range, and safety note when available
-  - after Deeper Diagnosis, confirm `sourceMetadata.aiDiagnosis` is saved on the created Help Request
+  - after Deeper Diagnosis, confirm `sourceMetadata.aiDiagnosis.backendDiagnosis` is saved on the created Help Request
+  - without Deeper Diagnosis, confirm `sourceMetadata.aiDiagnosis.localAssessment` is saved on the created Help Request
 - Backend AI deeper diagnosis:
   - tap `Deeper Diagnosis`
   - confirm result shows `AI used` after OpenAI key and model are configured
@@ -3434,8 +3438,9 @@ Highest priority pending work:
    - Why this is first: money, disputes, and admin actions are the highest trust risk before real users.
 
 2. Payment and payout testing/hardening
-   - Manual July 19 phone testing should cover cash, UPI report, admin approval/rejection, worker cash confirmation, payout request, payout approval/rejection, notifications, and earnings update.
-   - Add any missing backend validation discovered during testing.
+   - Completed this cycle: payment and payout admin review callables now require payment-admin/super-admin permission with legacy admin fallback, and both write `adminAuditLogs` entries with previous/new state.
+   - Manual July 19 phone testing should cover cash, UPI report, admin approval/rejection, worker cash confirmation, payout request, payout approval/rejection, notifications, earnings update, and admin audit log visibility.
+   - Later hardening: add automated tests, tighten legacy admin fallback after roles are fully assigned, and add payout/payment aging analytics.
    - Why this is second: payment mistakes create the fastest loss of trust.
 
 3. Simplified signup conversion
@@ -3449,15 +3454,15 @@ Highest priority pending work:
    - Why this matters: this is the zero-cost growth engine.
 
 5. Community campaign foundation
-   - Completed enough to move on: admin campaign calendar, customer dashboard banners, campaign detail screen, join flow, share flow, joined-count tracking, group-price progress, and deployed Firestore rules.
-   - Later hardening: convert campaign joins into booking/help requests with date/slot selection, city/apartment targeting, group discount tiers, and admin conversion analytics.
+   - Completed enough to move on: admin campaign calendar, customer dashboard banners, campaign detail screen, join flow, share flow, joined-count tracking, group-price progress, join-to-help-request conversion with date/slot/service selection, and deployed Firestore rules.
+   - Later hardening: city/apartment targeting, group discount tiers, admin conversion analytics, campaign-specific referral rewards, and direct booking conversion when worker/package selection is added.
    - Why this matters: this creates repeat demand instead of waiting for customers to have emergencies.
 
 6. AI Smart Booking next layer
-   - Improve assistant from simple diagnosis into guided booking draft creation.
-   - AI should suggest category, urgency, price range, questions, address need, and whether to create booking or help request.
+   - Completed this cycle: Smart Booking now passes local and backend AI diagnosis into Help Request as a structured Smart Booking plan, including category, urgency, questions, summary, price range, safety note, confidence, recommended path, local assessment, and backend diagnosis metadata.
+   - The Help Request form now shows that plan before submission so customers can confirm details instead of blindly accepting an AI result.
    - Keep backend quota/cost guard active before any real paid AI usage.
-   - Why this is not first today: the trust/admin/payment foundation should be safer before increasing booking volume.
+   - Later hardening: add voice/photo input, ask-and-answer chat steps, worker/package selection, and direct booking draft creation when worker selection is safe.
 
 7. Worker performance and trust expansion
    - Polish worker hours tracking from start/completion timestamps.

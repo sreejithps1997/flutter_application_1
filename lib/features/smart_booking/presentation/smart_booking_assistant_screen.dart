@@ -106,6 +106,38 @@ class _SmartBookingAssistantScreenState
     }
   }
 
+  Map<String, dynamic> _smartBookingMetadata(
+    SmartBookingAssessment assessment,
+    SmartBookingAiDiagnosis? aiDiagnosis,
+  ) {
+    final diagnosis = aiDiagnosis?.toMetadata();
+    return {
+      'category': aiDiagnosis?.category ?? assessment.category,
+      'urgency': aiDiagnosis?.urgency ?? assessment.urgency,
+      'summary': aiDiagnosis?.summary ?? assessment.summary,
+      'questions': aiDiagnosis?.questions ?? assessment.questions,
+      'priceRange': aiDiagnosis?.priceRange ?? '',
+      'safetyNote': aiDiagnosis?.safetyNote ?? '',
+      'recommendedPath':
+          aiDiagnosis?.recommendedPath ?? assessment.recommendedPath,
+      'confidence': aiDiagnosis?.confidence ?? 'local',
+      'aiUsed': aiDiagnosis?.aiUsed ?? false,
+      'providerConfigured': aiDiagnosis?.providerConfigured ?? false,
+      'quotaReserved': aiDiagnosis?.quotaReserved ?? false,
+      'cached': aiDiagnosis?.cached ?? false,
+      'localAssessment': {
+        'category': assessment.category,
+        'urgency': assessment.urgency,
+        'recommendedPath': assessment.recommendedPath,
+        'summary': assessment.summary,
+        'questions': assessment.questions,
+        'foundWorkers': assessment.hasWorkers,
+        'workerMatchCount': assessment.workers.length,
+      },
+      if (diagnosis != null) 'backendDiagnosis': diagnosis,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final assessment = _assessment;
@@ -125,7 +157,7 @@ class _SmartBookingAssistantScreenState
             const WorkablePageHeader(
               title: 'Tell Workable what you need',
               subtitle:
-                  'This first version uses local intelligence: category detection, urgency check, worker matching and help-request routing. Real AI can plug in later.',
+                  'Use local matching first, then spend Smart Help only when deeper diagnosis is useful.',
               icon: LucideIcons.sparkles,
             ),
             const SizedBox(height: 16),
@@ -225,7 +257,10 @@ class _SmartBookingAssistantScreenState
                     urgency: _aiDiagnosis?.urgency ?? assessment.urgency,
                     demandSignalId: assessment.demandSignalId,
                     city: assessment.city,
-                    aiDiagnosis: _aiDiagnosis?.toMetadata(),
+                    aiDiagnosis: _smartBookingMetadata(
+                      assessment,
+                      _aiDiagnosis,
+                    ),
                   ),
                 ),
               ),

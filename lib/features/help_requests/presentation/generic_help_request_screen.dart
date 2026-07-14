@@ -36,6 +36,7 @@ class _GenericHelpRequestScreenState
   bool _prefillApplied = false;
   String _source = 'customer_manual';
   Map<String, dynamic> _sourceMetadata = const {};
+  HelpRequestPrefill? _smartPrefill;
   Map<String, dynamic>? _selectedAddress;
 
   static const _types = [
@@ -62,11 +63,12 @@ class _GenericHelpRequestScreenState
   }
 
   void _applyPrefill(HelpRequestPrefill prefill) {
+    _smartPrefill = prefill;
     _source = prefill.source;
     _sourceMetadata = prefill.toMetadata();
     _requestType = prefill.requestType;
-    _urgency = _urgencies.contains(prefill.urgency)
-        ? prefill.urgency
+    _urgency = _urgencies.contains(prefill.normalizedUrgency)
+        ? prefill.normalizedUrgency
         : _urgency;
     _titleController.text = prefill.title;
     _descriptionController.text = prefill.description;
@@ -239,6 +241,10 @@ class _GenericHelpRequestScreenState
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           children: [
             _HeaderCard(urgency: _urgency, source: _source),
+            if (_smartPrefill != null) ...[
+              const SizedBox(height: 16),
+              _SmartBookingPlanCard(prefill: _smartPrefill!),
+            ],
             const SizedBox(height: 16),
             _SectionCard(
               title: 'What help do you need?',
@@ -456,6 +462,223 @@ class _HeaderCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SmartBookingPlanCard extends StatelessWidget {
+  const _SmartBookingPlanCard({required this.prefill});
+
+  final HelpRequestPrefill prefill;
+
+  @override
+  Widget build(BuildContext context) {
+    final questions = prefill.suggestedQuestions;
+    final priceRange = prefill.aiPriceRange;
+    final safetyNote = prefill.aiSafetyNote;
+    final confidence = prefill.aiConfidence;
+    final recommendedPath = prefill.aiRecommendedPath;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: WorkableDesign.cardDecoration(
+        color: WorkableDesign.primary.withValues(alpha: 0.06),
+        borderColor: WorkableDesign.primary.withValues(alpha: 0.18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: WorkableDesign.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(WorkableDesign.radius),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: WorkableDesign.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Smart Booking plan',
+                      style: TextStyle(
+                        color: WorkableDesign.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      prefill.aiSummary.isEmpty
+                          ? 'Workable prepared this request from your need. Confirm the location, time and budget before sending.'
+                          : prefill.aiSummary,
+                      style: const TextStyle(
+                        color: WorkableDesign.muted,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _PlanPill(
+                label: prefill.category,
+                color: WorkableDesign.primary,
+                icon: Icons.category_outlined,
+              ),
+              _PlanPill(
+                label: prefill.normalizedUrgency,
+                color: prefill.normalizedUrgency == 'Urgent'
+                    ? WorkableDesign.danger
+                    : WorkableDesign.success,
+                icon: Icons.flash_on_outlined,
+              ),
+              if (confidence.isNotEmpty)
+                _PlanPill(
+                  label: '${_titleCase(confidence)} confidence',
+                  color: WorkableDesign.warning,
+                  icon: Icons.fact_check_outlined,
+                ),
+              if (recommendedPath.isNotEmpty)
+                _PlanPill(
+                  label: _pathLabel(recommendedPath),
+                  color: WorkableDesign.success,
+                  icon: Icons.route_outlined,
+                ),
+            ],
+          ),
+          if (priceRange.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _PlanInfoRow(
+              icon: Icons.currency_rupee,
+              text: 'Estimated range: $priceRange',
+            ),
+          ],
+          if (safetyNote.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _PlanInfoRow(
+              icon: Icons.health_and_safety_outlined,
+              text: safetyNote,
+            ),
+          ],
+          if (questions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Confirm these before sending',
+              style: TextStyle(
+                color: WorkableDesign.ink,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...questions.take(4).map((question) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: _PlanInfoRow(
+                  icon: Icons.check_circle_outline,
+                  text: question,
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _pathLabel(String value) {
+    switch (value) {
+      case 'worker_booking':
+        return 'Compare workers';
+      case 'emergency':
+        return 'Urgent help';
+      default:
+        return 'Open help request';
+    }
+  }
+
+  String _titleCase(String value) {
+    if (value.isEmpty) return value;
+    return '${value[0].toUpperCase()}${value.substring(1).toLowerCase()}';
+  }
+}
+
+class _PlanPill extends StatelessWidget {
+  const _PlanPill({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanInfoRow extends StatelessWidget {
+  const _PlanInfoRow({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: WorkableDesign.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(color: WorkableDesign.muted, height: 1.35),
+          ),
+        ),
+      ],
     );
   }
 }

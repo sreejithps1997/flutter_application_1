@@ -976,6 +976,54 @@ async function requireCallableAdmin(context) {
   return uid;
 }
 
+async function requireCallableAdminRole(context, role) {
+  const uid = requireCallableAuth(context);
+  const userDoc = await db.collection("users").doc(uid).get();
+  const user = userDoc.data() || {};
+  const userType = stringValue(user.userType);
+  const adminRole = stringValue(user.adminRole).toLowerCase();
+  const adminRoles = Array.isArray(user.adminRoles) ?
+    user.adminRoles.map((item) => stringValue(item).toLowerCase()) :
+    [];
+  const hasLegacyAdminAccess =
+    userType === "admin" && !adminRole && adminRoles.length === 0;
+  const allowed = userType === "admin" && (
+    hasLegacyAdminAccess ||
+    adminRole === role ||
+    adminRole === "super_admin" ||
+    adminRoles.includes(role) ||
+    adminRoles.includes("super_admin")
+  );
+  if (!allowed) {
+    throw new functions.https.HttpsError(
+      "permission-denied",
+      `${role.replace(/_/g, " ")} permission is required.`
+    );
+  }
+  return uid;
+}
+
+function writeAdminAuditLog({
+  adminId,
+  action,
+  targetCollection,
+  targetId,
+  note = "",
+  previousState = {},
+  newState = {},
+}) {
+  return db.collection("adminAuditLogs").add({
+    adminId,
+    action,
+    targetCollection,
+    targetId,
+    note,
+    previousState,
+    newState,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
 function cacheTtlHours(diagnosis) {
   const urgency = stringValue(diagnosis && diagnosis.urgency);
   const confidence = stringValue(diagnosis && diagnosis.confidence);
@@ -2074,7 +2122,7 @@ exports.createPayoutRequest = functions.https.onCall(
 
 exports.reviewPayoutRequest = functions.https.onCall(
   async (data, context) => {
-    const adminId = await requireCallableAdmin(context);
+    const adminId = await requireCallableAdminRole(context, "payment_admin");
     const payoutRequestId = requireCleanText(
       data && data.payoutRequestId,
       "Payout request",
@@ -2098,6 +2146,7 @@ exports.reviewPayoutRequest = functions.https.onCall(
     let workerId = "";
     let amount = 0;
     let bookingIds = [];
+    let previousStatus = "";
 
     await db.runTransaction(async (transaction) => {
       const requestSnapshot = await transaction.get(requestRef);
@@ -2110,6 +2159,7 @@ exports.reviewPayoutRequest = functions.https.onCall(
 
       const request = requestSnapshot.data() || {};
       const currentStatus = stringValue(request.status, "pending");
+      previousStatus = currentStatus;
       if (currentStatus !== "pending") {
         throw new functions.https.HttpsError(
           "failed-precondition",
@@ -2172,6 +2222,21 @@ exports.reviewPayoutRequest = functions.https.onCall(
       }
     });
 
+    await writeAdminAuditLog({
+      adminId,
+      action: "review_payout_request",
+      targetCollection: "payoutRequests",
+      targetId: payoutRequestId,
+      note,
+      previousState: {status: previousStatus},
+      newState: {
+        status: decision === "approved" ? "paid" : "rejected",
+        decision,
+        amount,
+        bookingCount: bookingIds.length,
+      },
+    });
+
     await setUserNotification({
       uid: workerId,
       notificationId: notificationIdFor([
@@ -2205,7 +2270,7 @@ exports.reviewPayoutRequest = functions.https.onCall(
 
 exports.reviewPaymentRequest = functions.https.onCall(
   async (data, context) => {
-    const adminId = await requireCallableAdmin(context);
+    const adminId = await requireCallableAdminRole(context, "payment_admin");
     const bookingId = requireCleanText(data && data.bookingId, "Booking", {
       min: 2,
       max: 140,
@@ -2226,6 +2291,8 @@ exports.reviewPaymentRequest = functions.https.onCall(
     const bookingRef = db.collection("bookings").doc(bookingId);
     const now = admin.firestore.FieldValue.serverTimestamp();
     let helpRequestId = "";
+    let previousStatus = "";
+    let previousPaymentStatus = "";
 
     await db.runTransaction(async (transaction) => {
       const bookingSnapshot = await transaction.get(bookingRef);
@@ -2236,6 +2303,8 @@ exports.reviewPaymentRequest = functions.https.onCall(
       const booking = bookingSnapshot.data() || {};
       const paymentStatus = stringValue(booking.paymentStatus);
       const status = stringValue(booking.status);
+      previousStatus = status;
+      previousPaymentStatus = paymentStatus;
       const reviewable = status === "payment_under_review" ||
         paymentStatus === "customer_reported_paid" ||
         paymentStatus === "cash_pending_confirmation" ||
@@ -2292,6 +2361,24 @@ exports.reviewPaymentRequest = functions.https.onCall(
           });
         }
       }
+    });
+
+    await writeAdminAuditLog({
+      adminId,
+      action: "review_payment_request",
+      targetCollection: "bookings",
+      targetId: bookingId,
+      note,
+      previousState: {
+        status: previousStatus,
+        paymentStatus: previousPaymentStatus,
+      },
+      newState: {
+        status: decision === "approved" ? "completed" : "payment_due",
+        paymentStatus: decision === "approved" ? "paid" : "payment_rejected",
+        decision,
+        helpRequestId,
+      },
     });
 
     const transactionSnapshot = await db
